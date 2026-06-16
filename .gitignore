@@ -1,10 +1,55 @@
-__pycache__
-config.json
-.mp/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
 venv/
+.venv/
+env/
+ENV/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config.json
+*.local.json
+*.secret.json
+secrets.json
+credentials.json
+token.json
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Application data and generated output
+.mp/
 Songs/
-google-maps-scraper-0.9.7/
 niche.txt
-*.exe
 auto.sh
+outreach_message.html
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.mp3
+*.wav
+*.srt
+
+# Downloaded/vendor artifacts
+google-maps-scraper-0.9.7/
+*.exe
+
+# OS/editor files
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
