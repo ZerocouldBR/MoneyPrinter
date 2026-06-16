@@ -8,6 +8,7 @@ from status import *
 from config import *
 
 DEFAULT_SONG_ARCHIVE_URLS = []
+PERSISTENT_MP_DIRS = {"image_cache"}
 
 
 def close_running_selenium_instances() -> None:
@@ -27,7 +28,6 @@ def close_running_selenium_instances() -> None:
             os.system("pkill firefox")
 
         success(" => Closed running Selenium instances.")
-
     except Exception as e:
         error(f"Error occurred while closing running Selenium instances: {str(e)}")
 
@@ -40,26 +40,38 @@ def build_url(youtube_video_id: str) -> str:
         youtube_video_id (str): The YouTube video ID.
 
     Returns:
-        url (str): The URL to the YouTube video.
+        url: The URL to the YouTube video.
     """
     return f"https://www.youtube.com/watch?v={youtube_video_id}"
 
 
 def rem_temp_files() -> None:
     """
-    Removes temporary files in the `.mp` directory.
+    Removes temporary files in the `.mp` directory while preserving persistent caches.
 
     Returns:
         None
     """
-    # Path to the `.mp` directory
     mp_dir = os.path.join(ROOT_DIR, ".mp")
+    if not os.path.isdir(mp_dir):
+        return
 
-    files = os.listdir(mp_dir)
+    for name in os.listdir(mp_dir):
+        path = os.path.join(mp_dir, name)
 
-    for file in files:
-        if not file.endswith(".json"):
-            os.remove(os.path.join(mp_dir, file))
+        if os.path.isdir(path):
+            if name in PERSISTENT_MP_DIRS:
+                continue
+            warning(f"Skipping unexpected directory in .mp cleanup: {path}")
+            continue
+
+        if name.endswith(".json"):
+            continue
+
+        try:
+            os.remove(path)
+        except Exception as exc:
+            warning(f"Could not remove temporary file {path}: {exc}")
 
 
 def fetch_songs() -> None:
@@ -129,7 +141,6 @@ def fetch_songs() -> None:
             os.remove(archive_path)
 
         success(" => Downloaded Songs to ../Songs.")
-
     except Exception as e:
         error(f"Error occurred while fetching songs: {str(e)}")
 
