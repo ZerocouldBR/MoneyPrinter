@@ -38,5 +38,31 @@
     "platforms": ["tiktok", "instagram"],
     "account_ids": [],
     "auto_crosspost": false
+  },
+  "automation": {
+    "enabled": false,
+    "timezone": "America/Sao_Paulo",
+    "jobs": [
+      {
+        "id": "yt-economia-manha",
+        "enabled": true,
+        "platform": "youtube",
+        "account_id": "UUID_DA_CONTA_YOUTUBE",
+        "create_cron": "0 2 * * *",
+        "publish_cron": "30 8 * * *",
+        "topic_mode": "hybrid",
+        "topics": ["economia", "selic", "dólar", "investimentos"],
+        "news_sources": [
+          "https://g1.globo.com/rss/g1/economia/",
+          "https://feeds.reuters.com/reuters/businessNews"
+        ],
+        "news_blacklist": ["celebridades", "horóscopo", "fofoca"],
+        "news_max_age_hours": 48,
+        "news_title_keyword_weight": 5,
+        "news_summary_keyword_weight": 2,
+        "news_recency_weight": 1,
+        "max_per_day": 1
+      }
+    ]
   }
 }

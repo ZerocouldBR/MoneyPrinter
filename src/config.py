@@ -1,11 +1,63 @@
+import json
 import os
 import sys
-import json
-import srt_equalizer
+from functools import lru_cache
 
+import srt_equalizer
 from termcolor import colored
 
 ROOT_DIR = os.path.dirname(sys.path[0])
+
+
+def get_config_path() -> str:
+    """
+    Gets the config.json path.
+
+    Returns:
+        path (str): Absolute config path
+    """
+    return os.path.join(ROOT_DIR, "config.json")
+
+
+@lru_cache(maxsize=16)
+def _load_config_cached(config_path: str, config_mtime: float | None) -> dict:
+    if config_mtime is None or not os.path.exists(config_path):
+        return {}
+
+    with open(config_path, "r", encoding="utf-8") as file:
+        parsed = json.load(file)
+
+    if parsed is None:
+        return {}
+
+    return parsed
+
+
+def load_config() -> dict:
+    """
+    Loads config.json and automatically refreshes the cache when the file changes.
+
+    Returns:
+        config (dict): Parsed configuration dictionary.
+    """
+    config_path = get_config_path()
+    config_mtime = os.path.getmtime(config_path) if os.path.exists(config_path) else None
+    return _load_config_cached(config_path, config_mtime)
+
+
+def clear_config_cache() -> None:
+    """
+    Clears the cached config.json contents.
+
+    Returns:
+        None
+    """
+    _load_config_cached.cache_clear()
+
+
+def _get_config_value(key: str, default=None):
+    return load_config().get(key, default)
+
 
 def assert_folder_structure() -> None:
     """
@@ -14,11 +66,16 @@ def assert_folder_structure() -> None:
     Returns:
         None
     """
-    # Create the .mp folder
     if not os.path.exists(os.path.join(ROOT_DIR, ".mp")):
         if get_verbose():
-            print(colored(f"=> Creating .mp folder at {os.path.join(ROOT_DIR, '.mp')}", "green"))
+            print(
+                colored(
+                    f"=> Creating .mp folder at {os.path.join(ROOT_DIR, '.mp')}",
+                    "green",
+                )
+            )
         os.makedirs(os.path.join(ROOT_DIR, ".mp"))
+
 
 def get_first_time_running() -> bool:
     """
@@ -29,6 +86,7 @@ def get_first_time_running() -> bool:
     """
     return not os.path.exists(os.path.join(ROOT_DIR, ".mp"))
 
+
 def get_email_credentials() -> dict:
     """
     Gets the email credentials from the config file.
@@ -36,8 +94,8 @@ def get_email_credentials() -> dict:
     Returns:
         credentials (dict): The email credentials
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["email"]
+    return _get_config_value("email", {})
+
 
 def get_verbose() -> bool:
     """
@@ -46,8 +104,8 @@ def get_verbose() -> bool:
     Returns:
         verbose (bool): The verbose flag
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["verbose"]
+    return bool(_get_config_value("verbose", False))
+
 
 def get_firefox_profile_path() -> str:
     """
@@ -56,8 +114,8 @@ def get_firefox_profile_path() -> str:
     Returns:
         path (str): The path to the Firefox profile
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["firefox_profile"]
+    return str(_get_config_value("firefox_profile", ""))
+
 
 def get_headless() -> bool:
     """
@@ -66,8 +124,8 @@ def get_headless() -> bool:
     Returns:
         headless (bool): The headless flag
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["headless"]
+    return bool(_get_config_value("headless", False))
+
 
 def get_ollama_base_url() -> str:
     """
@@ -76,8 +134,8 @@ def get_ollama_base_url() -> str:
     Returns:
         url (str): The Ollama base URL
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get("ollama_base_url", "http://127.0.0.1:11434")
+    return str(_get_config_value("ollama_base_url", "http://127.0.0.1:11434"))
+
 
 def get_ollama_model() -> str:
     """
@@ -86,8 +144,8 @@ def get_ollama_model() -> str:
     Returns:
         model (str): The Ollama model name, or empty string if not set.
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get("ollama_model", "")
+    return str(_get_config_value("ollama_model", ""))
+
 
 def get_twitter_language() -> str:
     """
@@ -96,8 +154,8 @@ def get_twitter_language() -> str:
     Returns:
         language (str): The Twitter language
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["twitter_language"]
+    return str(_get_config_value("twitter_language", "English"))
+
 
 def get_nanobanana2_api_base_url() -> str:
     """
@@ -106,11 +164,13 @@ def get_nanobanana2_api_base_url() -> str:
     Returns:
         url (str): API base URL
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get(
+    return str(
+        _get_config_value(
             "nanobanana2_api_base_url",
             "https://generativelanguage.googleapis.com/v1beta",
         )
+    )
+
 
 def get_nanobanana2_api_key() -> str:
     """
@@ -119,9 +179,9 @@ def get_nanobanana2_api_key() -> str:
     Returns:
         key (str): API key
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        configured = json.load(file).get("nanobanana2_api_key", "")
-        return configured or os.environ.get("GEMINI_API_KEY", "")
+    configured = str(_get_config_value("nanobanana2_api_key", "")).strip()
+    return configured or os.environ.get("GEMINI_API_KEY", "")
+
 
 def get_nanobanana2_model() -> str:
     """
@@ -130,8 +190,8 @@ def get_nanobanana2_model() -> str:
     Returns:
         model (str): Model name
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get("nanobanana2_model", "gemini-3.1-flash-image-preview")
+    return str(_get_config_value("nanobanana2_model", "gemini-3.1-flash-image-preview"))
+
 
 def get_nanobanana2_aspect_ratio() -> str:
     """
@@ -140,8 +200,8 @@ def get_nanobanana2_aspect_ratio() -> str:
     Returns:
         ratio (str): Aspect ratio
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get("nanobanana2_aspect_ratio", "9:16")
+    return str(_get_config_value("nanobanana2_aspect_ratio", "9:16"))
+
 
 def get_threads() -> int:
     """
@@ -150,9 +210,9 @@ def get_threads() -> int:
     Returns:
         threads (int): Amount of threads
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["threads"]
-    
+    return int(_get_config_value("threads", 2))
+
+
 def get_zip_url() -> str:
     """
     Gets the URL to the zip file containing the songs.
@@ -160,8 +220,8 @@ def get_zip_url() -> str:
     Returns:
         url (str): The URL to the zip file
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["zip_url"]
+    return str(_get_config_value("zip_url", ""))
+
 
 def get_is_for_kids() -> bool:
     """
@@ -170,8 +230,8 @@ def get_is_for_kids() -> bool:
     Returns:
         is_for_kids (bool): The is for kids flag
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["is_for_kids"]
+    return bool(_get_config_value("is_for_kids", False))
+
 
 def get_google_maps_scraper_zip_url() -> str:
     """
@@ -180,8 +240,8 @@ def get_google_maps_scraper_zip_url() -> str:
     Returns:
         url (str): The URL to the zip file
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["google_maps_scraper"]
+    return str(_get_config_value("google_maps_scraper", ""))
+
 
 def get_google_maps_scraper_niche() -> str:
     """
@@ -190,8 +250,8 @@ def get_google_maps_scraper_niche() -> str:
     Returns:
         niche (str): The niche
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["google_maps_scraper_niche"]
+    return str(_get_config_value("google_maps_scraper_niche", ""))
+
 
 def get_scraper_timeout() -> int:
     """
@@ -200,8 +260,9 @@ def get_scraper_timeout() -> int:
     Returns:
         timeout (int): The timeout
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["scraper_timeout"] or 300
+    configured = _get_config_value("scraper_timeout", 300)
+    return int(configured or 300)
+
 
 def get_outreach_message_subject() -> str:
     """
@@ -210,9 +271,9 @@ def get_outreach_message_subject() -> str:
     Returns:
         subject (str): The outreach message subject
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["outreach_message_subject"]
-    
+    return str(_get_config_value("outreach_message_subject", "I have a question..."))
+
+
 def get_outreach_message_body_file() -> str:
     """
     Gets the outreach message body file.
@@ -220,8 +281,8 @@ def get_outreach_message_body_file() -> str:
     Returns:
         file (str): The outreach message body file
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["outreach_message_body_file"]
+    return str(_get_config_value("outreach_message_body_file", "outreach_message.html"))
+
 
 def get_tts_voice() -> str:
     """
@@ -230,8 +291,8 @@ def get_tts_voice() -> str:
     Returns:
         voice (str): The TTS voice
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get("tts_voice", "Jasper")
+    return str(_get_config_value("tts_voice", "Jasper"))
+
 
 def get_assemblyai_api_key() -> str:
     """
@@ -240,8 +301,8 @@ def get_assemblyai_api_key() -> str:
     Returns:
         key (str): The AssemblyAI API key
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["assembly_ai_api_key"]
+    return str(_get_config_value("assembly_ai_api_key", ""))
+
 
 def get_stt_provider() -> str:
     """
@@ -250,8 +311,8 @@ def get_stt_provider() -> str:
     Returns:
         provider (str): The STT provider
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get("stt_provider", "local_whisper")
+    return str(_get_config_value("stt_provider", "local_whisper"))
+
 
 def get_whisper_model() -> str:
     """
@@ -260,8 +321,8 @@ def get_whisper_model() -> str:
     Returns:
         model (str): Whisper model name
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get("whisper_model", "base")
+    return str(_get_config_value("whisper_model", "base"))
+
 
 def get_whisper_device() -> str:
     """
@@ -270,8 +331,8 @@ def get_whisper_device() -> str:
     Returns:
         device (str): Whisper device
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get("whisper_device", "auto")
+    return str(_get_config_value("whisper_device", "auto"))
+
 
 def get_whisper_compute_type() -> str:
     """
@@ -280,9 +341,9 @@ def get_whisper_compute_type() -> str:
     Returns:
         compute_type (str): Whisper compute type
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file).get("whisper_compute_type", "int8")
-    
+    return str(_get_config_value("whisper_compute_type", "int8"))
+
+
 def equalize_subtitles(srt_path: str, max_chars: int = 10) -> None:
     """
     Equalizes the subtitles in a SRT file.
@@ -295,7 +356,8 @@ def equalize_subtitles(srt_path: str, max_chars: int = 10) -> None:
         None
     """
     srt_equalizer.equalize_srt_file(srt_path, srt_path, max_chars)
-    
+
+
 def get_font() -> str:
     """
     Gets the font from the config file.
@@ -303,8 +365,8 @@ def get_font() -> str:
     Returns:
         font (str): The font
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["font"]
+    return str(_get_config_value("font", "bold_font.ttf"))
+
 
 def get_fonts_dir() -> str:
     """
@@ -315,6 +377,7 @@ def get_fonts_dir() -> str:
     """
     return os.path.join(ROOT_DIR, "fonts")
 
+
 def get_imagemagick_path() -> str:
     """
     Gets the path to ImageMagick.
@@ -322,8 +385,8 @@ def get_imagemagick_path() -> str:
     Returns:
         path (str): The path to ImageMagick
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        return json.load(file)["imagemagick_path"]
+    return str(_get_config_value("imagemagick_path", ""))
+
 
 def get_script_sentence_length() -> int:
     """
@@ -333,12 +396,9 @@ def get_script_sentence_length() -> int:
     Returns:
         length (int): Length of script's sentence
     """
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        config_json = json.load(file)
-        if (config_json.get("script_sentence_length") is not None):
-            return config_json["script_sentence_length"]
-        else:
-            return 4
+    configured = load_config().get("script_sentence_length")
+    return int(configured) if configured is not None else 4
+
 
 def get_post_bridge_config() -> dict:
     """
@@ -356,10 +416,7 @@ def get_post_bridge_config() -> dict:
     }
     supported_platforms = {"tiktok", "instagram"}
 
-    with open(os.path.join(ROOT_DIR, "config.json"), "r") as file:
-        config_json = json.load(file)
-
-    raw_config = config_json.get("post_bridge", {})
+    raw_config = load_config().get("post_bridge", {})
     if not isinstance(raw_config, dict):
         raw_config = {}
 
@@ -402,4 +459,59 @@ def get_post_bridge_config() -> dict:
         "auto_crosspost": bool(
             raw_config.get("auto_crosspost", defaults["auto_crosspost"])
         ),
+    }
+
+
+def get_automation_config() -> dict:
+    """
+    Gets the automation scheduler configuration with safe defaults.
+
+    Returns:
+        config (dict): Sanitized automation configuration
+    """
+    defaults = {
+        "enabled": False,
+        "timezone": "America/Sao_Paulo",
+        "jobs": [],
+    }
+
+    raw_config = load_config().get("automation", {})
+    if not isinstance(raw_config, dict):
+        raw_config = {}
+
+    raw_jobs = raw_config.get("jobs", [])
+    normalized_jobs = []
+
+    if isinstance(raw_jobs, list):
+        for index, raw_job in enumerate(raw_jobs, start=1):
+            if not isinstance(raw_job, dict):
+                continue
+
+            topics = raw_job.get("topics", [])
+            news_sources = raw_job.get("news_sources", [])
+            news_blacklist = raw_job.get("news_blacklist", [])
+            normalized_jobs.append(
+                {
+                    "id": str(raw_job.get("id") or f"job-{index}").strip(),
+                    "enabled": bool(raw_job.get("enabled", True)),
+                    "platform": str(raw_job.get("platform", "youtube")).strip().lower(),
+                    "account_id": str(raw_job.get("account_id", "")).strip(),
+                    "create_cron": str(raw_job.get("create_cron", "")).strip(),
+                    "publish_cron": str(raw_job.get("publish_cron", "")).strip(),
+                    "topic_mode": str(raw_job.get("topic_mode", "scheduled")).strip().lower(),
+                    "topics": [str(topic).strip() for topic in topics if str(topic).strip()] if isinstance(topics, list) else [],
+                    "news_sources": [str(source).strip() for source in news_sources if str(source).strip()] if isinstance(news_sources, list) else [],
+                    "news_blacklist": [str(term).strip().lower() for term in news_blacklist if str(term).strip()] if isinstance(news_blacklist, list) else [],
+                    "news_max_age_hours": max(1, int(raw_job.get("news_max_age_hours", 72))),
+                    "news_title_keyword_weight": max(0, int(raw_job.get("news_title_keyword_weight", 5))),
+                    "news_summary_keyword_weight": max(0, int(raw_job.get("news_summary_keyword_weight", 2))),
+                    "news_recency_weight": max(0, int(raw_job.get("news_recency_weight", 1))),
+                    "max_per_day": max(1, int(raw_job.get("max_per_day", 1))),
+                }
+            )
+
+    return {
+        "enabled": bool(raw_config.get("enabled", defaults["enabled"])),
+        "timezone": str(raw_config.get("timezone", defaults["timezone"])).strip() or defaults["timezone"],
+        "jobs": normalized_jobs,
     }

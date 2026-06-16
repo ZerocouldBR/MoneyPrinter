@@ -6,6 +6,14 @@ import os
 import requests
 import assemblyai as aai
 
+try:
+    from PIL import Image
+
+    if not hasattr(Image, "ANTIALIAS") and hasattr(Image, "Resampling"):
+        Image.ANTIALIAS = Image.Resampling.LANCZOS
+except Exception:
+    pass
+
 from utils import *
 from cache import *
 from .Tts import TTS
@@ -75,6 +83,8 @@ class YouTube:
         self._language: str = language
 
         self.images = []
+        self.service: Service | None = None
+        self.browser: webdriver.Firefox | None = None
 
         # Initialize the Firefox profile
         self.options: Options = Options()
@@ -90,14 +100,6 @@ class YouTube:
 
         self.options.add_argument("-profile")
         self.options.add_argument(self._fp_profile_path)
-
-        # Set the service
-        self.service: Service = Service(GeckoDriverManager().install())
-
-        # Initialize the browser
-        self.browser: webdriver.Firefox = webdriver.Firefox(
-            service=self.service, options=self.options
-        )
 
     @property
     def niche(self) -> str:
@@ -131,13 +133,29 @@ class YouTube:
         """
         return generate_text(prompt, model_name=model_name)
 
-    def generate_topic(self) -> str:
+    def _ensure_browser(self) -> webdriver.Firefox:
+        """
+        Lazily initializes the Firefox browser only when needed.
+
+        Returns:
+            browser (webdriver.Firefox): Active browser instance
+        """
+        if self.browser is None:
+            self.service = Service(GeckoDriverManager().install())
+            self.browser = webdriver.Firefox(service=self.service, options=self.options)
+        return self.browser
+
+    def generate_topic(self, forced_topic: str | None = None) -> str:
         """
         Generates a topic based on the YouTube Channel niche.
 
         Returns:
             topic (str): The generated topic.
         """
+        if forced_topic is not None and str(forced_topic).strip():
+            self.subject = str(forced_topic).strip()
+            return self.subject
+
         completion = self.generate_response(
             f"Please generate a specific video idea that takes about the following topic: {self.niche}. Make it exactly one sentence. Only return the topic, nothing else."
         )
@@ -157,6 +175,8 @@ class YouTube:
             script (str): The script of the video.
         """
         sentence_length = get_script_sentence_length()
+        research_brief = str(getattr(self, "research_brief", "")).strip()
+        extra_context = f"Additional context: {research_brief}" if research_brief else ""
         prompt = f"""
         Generate a script for a video in {sentence_length} sentences, depending on the subject of the video.
 
@@ -178,6 +198,7 @@ class YouTube:
         
         Subject: {self.subject}
         Language: {self.language}
+        {extra_context}
         """
         completion = self.generate_response(prompt)
 
@@ -228,7 +249,7 @@ class YouTube:
         Returns:
             image_prompts (List[str]): Generated List of image prompts.
         """
-        n_prompts = len(self.script) / 3
+        n_prompts = max(4, min(10, len(re.findall(r"[.!?]", self.script)) * 2 or 6))
 
         prompt = f"""
         Generate {n_prompts} Image Prompts for AI Image Generation,
@@ -286,7 +307,7 @@ class YouTube:
                     return self.generate_prompts()
 
         if len(image_prompts) > n_prompts:
-            image_prompts = image_prompts[: int(n_prompts)]
+            image_prompts = image_prompts[:n_prompts]
 
         self.image_prompts = image_prompts
 
@@ -646,7 +667,12 @@ class YouTube:
 
         return combined_image_path
 
-    def generate_video(self, tts_instance: TTS) -> str:
+    def generate_video(
+        self,
+        tts_instance: TTS,
+        topic: str | None = None,
+        context_brief: str | None = None,
+    ) -> str:
         """
         Generates a YouTube Short based on the provided niche and language.
 
@@ -656,8 +682,10 @@ class YouTube:
         Returns:
             path (str): The path to the generated MP4 File.
         """
+        self.research_brief = str(context_brief or "").strip()
+
         # Generate the Topic
-        self.generate_topic()
+        self.generate_topic(topic)
 
         # Generate the Script
         self.generate_script()
@@ -692,7 +720,7 @@ class YouTube:
         Returns:
             channel_id (str): The Channel ID.
         """
-        driver = self.browser
+        driver = self._ensure_browser()
         driver.get("https://studio.youtube.com")
         time.sleep(2)
         channel_id = driver.current_url.split("/")[-1]
@@ -710,7 +738,7 @@ class YouTube:
         try:
             self.get_channel_id()
 
-            driver = self.browser
+            driver = self._ensure_browser()
             verbose = get_verbose()
 
             # Go to youtube.com/upload
@@ -846,10 +874,15 @@ class YouTube:
 
             # Close the browser
             driver.quit()
+            self.browser = None
 
             return True
-        except:
-            self.browser.quit()
+        except Exception as e:
+            if get_verbose():
+                warning(f"YouTube upload failed: {e}")
+            if self.browser is not None:
+                self.browser.quit()
+                self.browser = None
             return False
 
     def get_videos(self) -> List[dict]:

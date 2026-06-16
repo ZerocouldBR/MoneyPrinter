@@ -61,14 +61,22 @@ class Twitter:
         self.options.add_argument("-profile")
         self.options.add_argument(fp_profile_path)
 
-        # Set the service
-        self.service: Service = Service(GeckoDriverManager().install())
+        self.service: Service | None = None
+        self.browser: webdriver.Firefox | None = None
+        self.wait: WebDriverWait | None = None
 
-        # Initialize the browser
-        self.browser: webdriver.Firefox = webdriver.Firefox(
-            service=self.service, options=self.options
-        )
-        self.wait: WebDriverWait = WebDriverWait(self.browser, 30)
+    def _ensure_browser(self) -> webdriver.Firefox:
+        """
+        Lazily initializes the browser only when posting is required.
+
+        Returns:
+            browser (webdriver.Firefox): Active browser instance
+        """
+        if self.browser is None:
+            self.service = Service(GeckoDriverManager().install())
+            self.browser = webdriver.Firefox(service=self.service, options=self.options)
+            self.wait = WebDriverWait(self.browser, 30)
+        return self.browser
 
     def post(self, text: Optional[str] = None) -> None:
         """
@@ -80,7 +88,7 @@ class Twitter:
         Returns:
             None
         """
-        bot: webdriver.Firefox = self.browser
+        bot: webdriver.Firefox = self._ensure_browser()
         verbose: bool = get_verbose()
 
         bot.get("https://x.com/compose/post")
@@ -195,16 +203,24 @@ class Twitter:
             with open(get_twitter_cache_path(), "w") as f:
                 f.write(json.dumps(previous_json))
 
-    def generate_post(self) -> str:
+    def generate_post(
+        self,
+        topic_override: Optional[str] = None,
+        context_override: Optional[str] = None,
+    ) -> str:
         """
         Generates a post for the Twitter account based on the topic.
 
         Returns:
             post (str): The post
         """
+        topic = str(topic_override or self.topic).strip()
+        context = str(context_override or "").strip()
+        context_suffix = f" Use this additional context: {context}." if context else ""
         completion = generate_text(
-            f"Generate a Twitter post about: {self.topic} in {get_twitter_language()}. "
+            f"Generate a Twitter post about: {topic} in {get_twitter_language()}. "
             "The Limit is 2 sentences. Choose a specific sub-topic of the provided topic."
+            f"{context_suffix}"
         )
 
         if get_verbose():
