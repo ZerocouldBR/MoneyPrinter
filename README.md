@@ -40,24 +40,55 @@ If you would like to submit your own version/fork of MoneyPrinter, please open a
 
 > ⚠️ If you are planning to reach out to scraped businesses per E-Mail, please first install the [Go Programming Language](https://golang.org/).
 
+### Windows / PowerShell
+
+Use Python 3.12. Python 3.13 is not supported by all current dependencies.
+
+```powershell
+py -3.12 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+Copy-Item config.example.json config.json
+python src/main.py
+```
+
+If PowerShell blocks virtual environment activation, run this once and activate the environment again:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+.\venv\Scripts\Activate.ps1
+```
+
+### Linux / macOS
+
 ```bash
 git clone https://github.com/FujiwaraChoki/MoneyPrinterV2.git
-
 cd MoneyPrinterV2
+
 # Copy Example Configuration and fill out values in config.json
 cp config.example.json config.json
 
-# Create a virtual environment
-python -m venv venv
-
-# Activate the virtual environment - Windows
-.\venv\Scripts\activate
-
-# Activate the virtual environment - Unix
+# Create and activate a virtual environment
+python3.12 -m venv venv
 source venv/bin/activate
 
 # Install the requirements
+python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
+```
+
+### Dependency compatibility notes
+
+The project currently pins a few dependencies to keep compatibility with the existing imports:
+
+- `selenium==4.9.1` keeps compatibility with `selenium_firefox==2.0.8`.
+- `moviepy==1.0.3` keeps compatibility with `from moviepy.editor import *`.
+
+If you already installed dependencies before these pins were added, refresh your local environment with:
+
+```powershell
+pip install --force-reinstall -r requirements.txt
 ```
 
 ## Usage
