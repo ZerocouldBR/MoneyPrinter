@@ -30,11 +30,21 @@ TWITTER_CRON_OPTIONS = [
 YOUTUBE_OPTIONS = [
     "Create Videos",
     "Generate Topics and Insights",
+    "Content Profiles and Presets",
     "Upload Current Generated Video",
     "Review Generated Projects",
     "Show Uploaded Shorts",
     "Automation and Scheduling",
     "Guides and Category Instructions",
+    "Back"
+]
+
+YOUTUBE_PROFILE_OPTIONS = [
+    "List Content Profiles",
+    "Create Content Profile",
+    "Activate Content Profile",
+    "Edit Content Profile",
+    "Delete Content Profile",
     "Back"
 ]
 
@@ -44,6 +54,8 @@ YOUTUBE_CREATE_OPTIONS = [
     "Story / Entertainment Short",
     "Market Commentary / Finance Short",
     "Biblical / Devotional Short",
+    "Long-form Story Video",
+    "Feature / Long Script Video",
     "Back"
 ]
 

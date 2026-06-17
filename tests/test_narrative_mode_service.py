@@ -58,6 +58,24 @@ class NarrativeModeServiceTests(unittest.TestCase):
         self.assertEqual(len(plan["scenes"]), 1)
         self.assertEqual(generate_text_mock.call_count, 2)
 
+    @patch("services.narrative_mode_service.generate_text")
+    def test_build_plan_accepts_scene_count_override_for_longer_sequences(self, generate_text_mock) -> None:
+        generate_text_mock.side_effect = [
+            "Suspense story subject.",
+            "Beat one. Beat two. Beat three. Beat four.",
+            '{"style":"dark cinematic","palette":"black and red","main_character":"Luiza","setting":"old mansion","camera_style":"vertical close-ups","mood":"tense","continuity_rules":["same protagonist"]}',
+            '[{"scene_number":1,"purpose":"hook","narration":"Beat one.","image_prompt":"scene one"}]',
+        ]
+
+        plan = self.service.build_plan(
+            mode="story",
+            niche="terror",
+            language="Portuguese",
+            scene_count_override=30,
+        )
+
+        self.assertEqual(plan["scene_count"], 30)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -116,6 +116,36 @@ def add_account(provider: str, account: dict) -> None:
             "accounts": accounts
         }, file, indent=4)
 
+def update_account(provider: str, account_id: str, updates: dict) -> dict | None:
+    """
+    Updates an account in the cache.
+
+    Args:
+        provider (str): The provider to update the account for
+        account_id (str): The ID of the account to update
+        updates (dict): Partial fields to merge into the account
+
+    Returns:
+        account (dict | None): Updated account or None when not found
+    """
+    accounts = get_accounts(provider)
+    updated_account = None
+
+    for account in accounts:
+        if account.get('id') == account_id:
+            account.update(updates or {})
+            updated_account = account
+            break
+
+    cache_path = get_provider_cache_path(provider)
+    with open(cache_path, 'w') as file:
+        json.dump({
+            "accounts": accounts
+        }, file, indent=4)
+
+    return updated_account
+
+
 def remove_account(provider: str, account_id: str) -> None:
     """
     Removes an account from the cache.

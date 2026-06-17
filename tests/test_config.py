@@ -80,5 +80,63 @@ class PostBridgeConfigTests(unittest.TestCase):
         self.assertFalse(post_bridge_config["enabled"])
 
 
+class TtsAndSubtitleConfigTests(unittest.TestCase):
+    def write_config(self, directory: str, payload: dict) -> None:
+        with open(os.path.join(directory, "config.json"), "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+
+    def test_tts_config_exposes_language_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.write_config(
+                temp_dir,
+                {
+                    "tts": {
+                        "default_provider": "edge",
+                        "language_profiles": {
+                            "english": {
+                                "default_variant": "female",
+                                "variants": {
+                                    "male": {"voice": "en-US-GuyNeural", "label": "English Male"},
+                                    "female": {"voice": "en-US-JennyNeural", "label": "English Female"},
+                                },
+                            },
+                            "portuguese": {
+                                "variants": {
+                                    "male": {"voice": "pt-BR-AntonioNeural", "label": "Portuguese Male"}
+                                }
+                            },
+                        },
+                    }
+                },
+            )
+
+            with patch.object(config, "ROOT_DIR", temp_dir):
+                tts_config = config.get_tts_config()
+
+        self.assertEqual(tts_config["default_provider"], "edge")
+        self.assertEqual(tts_config["language_profiles"]["english"]["default_variant"], "female")
+        self.assertEqual(tts_config["language_profiles"]["english"]["variants"]["female"]["voice"], "en-US-JennyNeural")
+        self.assertEqual(tts_config["language_profiles"]["portuguese"]["variants"]["male"]["voice"], "pt-BR-AntonioNeural")
+
+    def test_subtitle_style_config_uses_readable_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.write_config(temp_dir, {})
+
+            with patch.object(config, "ROOT_DIR", temp_dir):
+                subtitle_config = config.get_subtitle_style_config()
+
+        self.assertTrue(subtitle_config["enabled"])
+        self.assertEqual(subtitle_config["color"], "#F8F8F2")
+        self.assertTrue(subtitle_config["background_enabled"])
+        self.assertGreater(subtitle_config["background_opacity"], 0)
+        self.assertGreaterEqual(subtitle_config["language_profiles"]["english"]["vertical_position"], 0.55)
+        self.assertGreaterEqual(subtitle_config["language_profiles"]["english"]["max_chars"], 10)
+        self.assertGreater(subtitle_config["language_profiles"]["portuguese"]["vertical_position"], subtitle_config["language_profiles"]["english"]["vertical_position"])
+        self.assertGreater(
+            subtitle_config["language_profiles"]["english"]["category_profiles"]["finance"]["vertical_position"],
+            subtitle_config["language_profiles"]["english"]["vertical_position"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

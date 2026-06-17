@@ -7,11 +7,12 @@ import tempfile
 import assemblyai as aai
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageColor
 
     if not hasattr(Image, "ANTIALIAS") and hasattr(Image, "Resampling"):
         Image.ANTIALIAS = Image.Resampling.LANCZOS
 except Exception:
+    ImageColor = None
     pass
 
 from utils import *
@@ -64,6 +65,7 @@ class YouTube:
         fp_profile_path: str,
         niche: str,
         language: str,
+        tts_defaults: dict | None = None,
     ) -> None:
         """
         Constructor for YouTube Class.
@@ -81,8 +83,11 @@ class YouTube:
         self._account_uuid: str = account_uuid
         self._account_nickname: str = account_nickname
         self._fp_profile_path: str = fp_profile_path
-        self._niche: str = niche
-        self._language: str = language
+        self._account_niche: str = niche
+        self._account_language_default: str = language
+        self._language_override: str | None = None
+        self._tts_defaults: dict = dict(tts_defaults or {})
+        self._content_profile: dict = {}
 
         self.images = []
         self.service: Service | None = None
@@ -98,22 +103,83 @@ class YouTube:
     @property
     def niche(self) -> str:
         """
-        Getter Method for the niche.
+        Getter Method for the active niche.
 
         Returns:
             niche (str): The niche
         """
-        return self._niche
+        return str(self._content_profile.get("niche") or self._account_niche or "")
+
+    @property
+    def active_profile_name(self) -> str:
+        return str(self._content_profile.get("name") or "Default")
+
+    @property
+    def content_brief(self) -> str:
+        return str(self._content_profile.get("content_brief") or "").strip()
+
+    @property
+    def subject_hints(self) -> str:
+        return str(self._content_profile.get("subject_hints") or "").strip()
+
+    @property
+    def account_language(self) -> str:
+        return str(self._content_profile.get("language") or self._account_language_default or "English")
 
     @property
     def language(self) -> str:
         """
-        Getter Method for the language to use.
+        Getter Method for the language to use for the current generation.
 
         Returns:
             language (str): The language
         """
-        return self._language
+        return str(self._language_override or self.account_language or "English")
+
+    def set_generation_language(self, language: str | None) -> None:
+        selected = str(language or "").strip()
+        self._language_override = selected or self.account_language
+
+    def set_generation_voice(
+        self,
+        voice: str | None = None,
+        provider: str | None = None,
+        variant: str | None = None,
+        label: str | None = None,
+    ) -> None:
+        self.tts_voice_override = str(voice or "").strip() or None
+        self.tts_provider_override = str(provider or "").strip().lower() or None
+        self.tts_variant_override = str(variant or "").strip().lower() or None
+        self.tts_voice_label = str(label or "").strip() or None
+
+    def set_channel_tts_defaults(self, tts_defaults: dict | None) -> None:
+        self._tts_defaults = dict(tts_defaults or {})
+
+    def set_content_profile(self, profile: dict | None) -> None:
+        self._content_profile = dict(profile or {})
+        if not str(self._language_override or "").strip():
+            self._language_override = self.account_language
+
+    def get_channel_tts_defaults(self) -> dict:
+        return dict(getattr(self, "_tts_defaults", {}) or {})
+
+    def _get_speech_language_code(self) -> str:
+        current_language = str(self.language or "english").strip().lower()
+        if current_language.startswith("portugu") or current_language in {"pt", "pt-br", "br"}:
+            return "pt"
+        return "en"
+
+    def _get_subtitle_category_key(self) -> str:
+        mode = str(getattr(self, "content_mode", "classic") or "classic").strip().lower()
+        if mode in {"story", "finance", "biblical", "classic"}:
+            return mode
+        if "story" in mode or "feature" in mode:
+            return "story"
+        if "finance" in mode or "market" in mode:
+            return "finance"
+        if "biblical" in mode or "devotional" in mode:
+            return "biblical"
+        return "classic"
 
     def generate_response(self, prompt: str, model_name: str = None) -> str:
         """
@@ -206,8 +272,11 @@ class YouTube:
             self.subject = str(forced_topic).strip()
             return self.subject
 
+        profile_brief = f" Additional creative brief: {self.content_brief}." if self.content_brief else ""
+        subject_hints = f" Preferred subjects/examples: {self.subject_hints}." if self.subject_hints else ""
         completion = self.generate_response(
-            f"Please generate a specific video idea that takes about the following topic: {self.niche}. Make it exactly one sentence. Only return the topic, nothing else."
+            f"Please generate a specific video idea about the following topic: {self.niche}."
+            f"{profile_brief}{subject_hints} Write it in {self.language}. Make it exactly one sentence. Only return the topic, nothing else."
         )
 
         if not completion:
@@ -226,7 +295,14 @@ class YouTube:
         """
         sentence_length = get_script_sentence_length()
         research_brief = str(getattr(self, "research_brief", "")).strip()
-        extra_context = f"Additional context: {research_brief}" if research_brief else ""
+        extra_context_parts = []
+        if self.content_brief:
+            extra_context_parts.append(f"Channel content brief: {self.content_brief}")
+        if self.subject_hints:
+            extra_context_parts.append(f"Preferred subjects/examples: {self.subject_hints}")
+        if research_brief:
+            extra_context_parts.append(f"Additional context: {research_brief}")
+        extra_context = " ".join(extra_context_parts)
         prompt = f"""
         Generate a script for a video in {sentence_length} sentences, depending on the subject of the video.
 
@@ -279,7 +355,8 @@ class YouTube:
             metadata (dict): The generated metadata.
         """
         title = self.generate_response(
-            f"Please generate a YouTube Video Title for the following subject, including hashtags: {self.subject}. Only return the title, nothing else. Limit the title under 100 characters."
+            f"Please generate a YouTube Video Title in {self.language} for the following subject, including hashtags: {self.subject}. "
+            f"Channel profile: {self.active_profile_name}. Only return the title, nothing else. Limit the title under 100 characters."
         )
 
         if len(title) > 100:
@@ -288,7 +365,7 @@ class YouTube:
             return self.generate_metadata()
 
         description = self.generate_response(
-            f"Please generate a YouTube Video Description for the following script: {self.script}. Only return the description, nothing else."
+            f"Please generate a YouTube Video Description in {self.language} for the following script: {self.script}. Only return the description, nothing else."
         )
 
         self.metadata = {"title": title, "description": description}
@@ -488,27 +565,35 @@ class YouTube:
 
     def generate_script_to_speech(self, tts_instance: TTS) -> str:
         """
-        Converts the generated script into Speech using KittenTTS and returns the path to the wav file.
+        Converts the generated script into speech using the configured TTS provider.
 
         Args:
             tts_instance (tts): Instance of TTS Class.
 
         Returns:
-            path_to_wav (str): Path to generated audio (WAV Format).
+            path_to_audio (str): Path to generated audio.
         """
-        path = os.path.join(ROOT_DIR, ".mp", str(uuid4()) + ".wav")
+        extension = tts_instance.get_output_extension(language=self.language)
+        path = os.path.join(ROOT_DIR, ".mp", str(uuid4()) + extension)
 
-        # Clean script, remove every character that is not a word character, a space, a period, a question mark, or an exclamation mark.
-        self.script = re.sub(r"[^\w\s.?!]", "", self.script)
+        # Clean script, remove characters that tend to produce noisy speech while preserving accents.
+        self.script = re.sub(r"[^\w\s.,;:?!áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ-]", "", self.script)
 
-        tts_instance.synthesize(self.script, path)
+        final_path = tts_instance.synthesize(
+            self.script,
+            path,
+            language=self.language,
+            provider=getattr(self, "tts_provider_override", None),
+            voice=getattr(self, "tts_voice_override", None),
+            variant=getattr(self, "tts_variant_override", None),
+        )
 
-        self.tts_path = path
+        self.tts_path = final_path
 
         if get_verbose():
-            info(f' => Wrote TTS to "{path}"')
+            info(f' => Wrote TTS to "{final_path}"')
 
-        return path
+        return final_path
 
     def add_video(self, video: dict) -> None:
         """
@@ -570,7 +655,7 @@ class YouTube:
             path (str): Path to SRT file
         """
         aai.settings.api_key = get_assemblyai_api_key()
-        config = aai.TranscriptionConfig()
+        config = aai.TranscriptionConfig(language_code=self._get_speech_language_code())
         transcriber = aai.Transcriber(config=config)
         transcript = transcriber.transcribe(audio_path)
         subtitles = transcript.export_subtitles_srt()
@@ -623,7 +708,7 @@ class YouTube:
             device=get_whisper_device(),
             compute_type=get_whisper_compute_type(),
         )
-        segments, _ = model.transcribe(audio_path, vad_filter=True)
+        segments, _ = model.transcribe(audio_path, vad_filter=True, language=self._get_speech_language_code())
 
         lines = []
         for idx, segment in enumerate(segments, start=1):
@@ -654,6 +739,75 @@ class YouTube:
             return False
         return os.path.exists(configured_path)
 
+    def _resolve_color(self, value):
+        if isinstance(value, (tuple, list)) and len(value) >= 3:
+            return tuple(int(channel) for channel in value[:3])
+        text = str(value or "black").strip()
+        if not text:
+            return (0, 0, 0)
+        if ImageColor is not None:
+            try:
+                return ImageColor.getrgb(text)
+            except Exception:
+                pass
+        named = {
+            "black": (0, 0, 0),
+            "white": (255, 255, 255),
+            "yellow": (255, 255, 0),
+        }
+        return named.get(text.lower(), (0, 0, 0))
+
+    def _extract_scene_narrations(self) -> list[str]:
+        narrations = [
+            str(scene.get("narration", "")).strip()
+            for scene in list(getattr(self, "scene_plan", []) or [])
+            if str(scene.get("narration", "")).strip()
+        ]
+        if narrations:
+            return narrations
+
+        script = str(getattr(self, "script", "")).strip()
+        if not script:
+            return []
+        parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", script) if part.strip()]
+        return parts or [script]
+
+    def _build_scene_durations(self, total_duration: float, asset_count: int) -> list[float]:
+        if asset_count <= 0:
+            return []
+
+        narrations = self._extract_scene_narrations()
+        if len(narrations) != asset_count:
+            equal_duration = total_duration / asset_count if asset_count else total_duration
+            return [equal_duration for _ in range(asset_count)]
+
+        weights = [max(1, len(re.findall(r"\w+", narration))) for narration in narrations]
+        total_weight = sum(weights) or asset_count
+        durations = [max(1.2, total_duration * (weight / total_weight)) for weight in weights]
+        correction = total_duration - sum(durations)
+        if durations:
+            durations[-1] = max(1.0, durations[-1] + correction)
+        return durations
+
+    def _generate_script_based_subtitles(self, total_duration: float) -> str:
+        lines = self._extract_scene_narrations()
+        if not lines:
+            raise ValueError("No narration text available for script-based subtitles.")
+
+        durations = self._build_scene_durations(total_duration, len(lines))
+        cursor = 0.0
+        srt_lines = []
+        for index, (text, duration) in enumerate(zip(lines, durations), start=1):
+            start = self._format_srt_timestamp(cursor)
+            cursor += duration
+            end = self._format_srt_timestamp(cursor)
+            srt_lines.extend([str(index), f"{start} --> {end}", text, ""])
+
+        srt_path = os.path.join(ROOT_DIR, ".mp", str(uuid4()) + "-scripted.srt")
+        with open(srt_path, "w", encoding="utf-8") as file:
+            file.write("\n".join(srt_lines))
+        return srt_path
+
     def _reset_generation_state(self) -> None:
         self.images = []
         self.image_prompts = []
@@ -668,6 +822,11 @@ class YouTube:
         self.video_path = None
         self.exported_video_path = None
         self.exported_video_dir = None
+        self.tts_voice_override = getattr(self, "tts_voice_override", None)
+        self.tts_provider_override = getattr(self, "tts_provider_override", None)
+        self.tts_variant_override = getattr(self, "tts_variant_override", None)
+        self.tts_voice_label = getattr(self, "tts_voice_label", None)
+        self._language_override = self._language_override or self.account_language
 
     def _get_exports_dir(self) -> str:
         exports_dir = os.path.join(ROOT_DIR, "outputs", "youtube")
@@ -701,8 +860,10 @@ class YouTube:
         export_payload = {
             "account_id": self._account_uuid,
             "nickname": self._account_nickname,
-            "niche": self._niche,
-            "language": self._language,
+            "niche": self.niche,
+            "language": self.language,
+            "profile_name": self.active_profile_name,
+            "content_brief": self.content_brief,
             "subject": getattr(self, "subject", ""),
             "script": getattr(self, "script", ""),
             "content_mode": getattr(self, "content_mode", "classic"),
@@ -715,6 +876,12 @@ class YouTube:
             "video_path": exported_video_path,
             "project_dir": export_dir,
             "research_brief": getattr(self, "research_brief", ""),
+            "tts": {
+                "voice": getattr(self, "tts_voice_override", None),
+                "provider": getattr(self, "tts_provider_override", None),
+                "variant": getattr(self, "tts_variant_override", None),
+                "label": getattr(self, "tts_voice_label", None),
+            },
             "references": {
                 "source": planning.get("source"),
                 "source_url": planning.get("source_url"),
@@ -774,8 +941,10 @@ class YouTube:
         record = {
             "account_id": self._account_uuid,
             "nickname": self._account_nickname,
-            "niche": self._niche,
-            "language": self._language,
+            "niche": self.niche,
+            "language": self.language,
+            "profile_name": self.active_profile_name,
+            "content_brief": self.content_brief,
             "subject": getattr(self, "subject", ""),
             "script": getattr(self, "script", ""),
             "content_mode": getattr(self, "content_mode", "classic"),
@@ -789,6 +958,12 @@ class YouTube:
             "exported_video_path": exported_video_path,
             "project_dir": getattr(self, "exported_video_dir", None),
             "research_brief": getattr(self, "research_brief", ""),
+            "tts": {
+                "voice": getattr(self, "tts_voice_override", None),
+                "provider": getattr(self, "tts_provider_override", None),
+                "variant": getattr(self, "tts_variant_override", None),
+                "label": getattr(self, "tts_voice_label", None),
+            },
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
 
@@ -837,22 +1012,42 @@ class YouTube:
             media_assets = [{"type": "image", "path": path} for path in self.images]
 
         threads = get_threads()
+        subtitle_style = get_subtitle_style_config()
+        subtitle_language_key = "portuguese" if str(self.language).strip().lower().startswith("portugu") else "english"
+        language_subtitle_profile = subtitle_style.get("language_profiles", {}).get(subtitle_language_key, {})
+        subtitle_profile = (
+            language_subtitle_profile.get("category_profiles", {}).get(self._get_subtitle_category_key(), {})
+            or language_subtitle_profile
+        )
         tts_clip = AudioFileClip(self.tts_path)
         max_duration = tts_clip.duration
-        req_dur = max_duration / len(media_assets)
+        asset_durations = self._build_scene_durations(max_duration, len(media_assets))
 
         generator = None
-        if self._has_valid_imagemagick():
-            generator = lambda txt: TextClip(
-                txt,
-                font=os.path.join(get_fonts_dir(), get_font()),
-                fontsize=100,
-                color="#FFFF00",
-                stroke_color="black",
-                stroke_width=5,
-                size=(1080, 1920),
-                method="caption",
-            )
+        if subtitle_style.get("enabled", True) and self._has_valid_imagemagick():
+            def generator(txt):
+                text_clip = TextClip(
+                    txt,
+                    font=os.path.join(get_fonts_dir(), get_font()),
+                    fontsize=subtitle_profile.get("font_size", 68),
+                    color=subtitle_style.get("color", "#F8F8F2"),
+                    stroke_color=subtitle_profile.get("stroke_color", subtitle_style.get("stroke_color", "#101010")),
+                    stroke_width=subtitle_style.get("stroke_width", 4),
+                    size=(subtitle_profile.get("box_width", 900), subtitle_profile.get("box_height", 250)),
+                    method="caption",
+                    align="center",
+                )
+                if subtitle_style.get("background_enabled", True):
+                    return text_clip.on_color(
+                        size=(
+                            int(text_clip.w + subtitle_profile.get("background_padding_x", subtitle_style.get("background_padding_x", 50))),
+                            int(text_clip.h + subtitle_profile.get("background_padding_y", subtitle_style.get("background_padding_y", 24))),
+                        ),
+                        color=subtitle_style.get("background_color", "black"),
+                        col_opacity=subtitle_profile.get("background_opacity", subtitle_style.get("background_opacity", 0.35)),
+                        pos=("center", "center"),
+                    )
+                return text_clip
         elif get_verbose():
             warning(
                 "ImageMagick path is not configured correctly. Subtitles will be skipped. "
@@ -862,52 +1057,47 @@ class YouTube:
         print(colored("[+] Combining images...", "blue"))
 
         clips = []
-        tot_dur = 0
-        while tot_dur < max_duration:
-            for asset in media_assets:
-                asset_type = asset.get("type")
-                asset_path = asset.get("path")
-                if asset_type == "video":
-                    clip = VideoFileClip(asset_path).without_audio()
-                    if clip.duration < req_dur:
-                        clip = clip.fx(vfx.loop, duration=req_dur)
-                    else:
-                        clip = clip.subclip(0, req_dur)
-                    clip = clip.set_fps(30)
-                    if get_verbose():
-                        info(f" => Resizing Video Asset: {asset_path} to 1080x1920")
+        for asset, target_duration in zip(media_assets, asset_durations):
+            asset_type = asset.get("type")
+            asset_path = asset.get("path")
+            target_duration = max(1.0, float(target_duration))
+            if asset_type == "video":
+                clip = VideoFileClip(asset_path).without_audio()
+                if clip.duration < target_duration:
+                    clip = clip.fx(vfx.loop, duration=target_duration)
                 else:
-                    clip = ImageClip(asset_path)
-                    clip.duration = req_dur
-                    clip = clip.set_fps(30)
+                    clip = clip.subclip(0, target_duration)
+                clip = clip.set_fps(30)
+                if get_verbose():
+                    info(f" => Resizing Video Asset: {asset_path} to 1080x1920 for {target_duration:.2f}s")
+            else:
+                clip = ImageClip(asset_path)
+                clip = clip.set_duration(target_duration)
+                clip = clip.set_fps(30)
 
-                    if round((clip.w / clip.h), 4) < 0.5625:
-                        if get_verbose():
-                            info(f" => Resizing Image: {asset_path} to 1080x1920")
-                        clip = crop(
-                            clip,
-                            width=clip.w,
-                            height=round(clip.w / 0.5625),
-                            x_center=clip.w / 2,
-                            y_center=clip.h / 2,
-                        )
-                    else:
-                        if get_verbose():
-                            info(f" => Resizing Image: {asset_path} to 1920x1080")
-                        clip = crop(
-                            clip,
-                            width=round(0.5625 * clip.h),
-                            height=clip.h,
-                            x_center=clip.w / 2,
-                            y_center=clip.h / 2,
-                        )
+                if round((clip.w / clip.h), 4) < 0.5625:
+                    if get_verbose():
+                        info(f" => Resizing Image: {asset_path} to 1080x1920 for {target_duration:.2f}s")
+                    clip = crop(
+                        clip,
+                        width=clip.w,
+                        height=round(clip.w / 0.5625),
+                        x_center=clip.w / 2,
+                        y_center=clip.h / 2,
+                    )
+                else:
+                    if get_verbose():
+                        info(f" => Resizing Image: {asset_path} to 1920x1080 for {target_duration:.2f}s")
+                    clip = crop(
+                        clip,
+                        width=round(0.5625 * clip.h),
+                        height=clip.h,
+                        x_center=clip.w / 2,
+                        y_center=clip.h / 2,
+                    )
 
-                clip = clip.resize((1080, 1920))
-                clips.append(clip)
-                tot_dur += clip.duration
-
-                if tot_dur >= max_duration:
-                    break
+            clip = clip.resize((1080, 1920))
+            clips.append(clip)
 
         final_clip = concatenate_videoclips(clips)
         final_clip = final_clip.set_fps(30)
@@ -915,13 +1105,20 @@ class YouTube:
 
         subtitles = None
         if generator is not None:
+            subtitles_path = None
             try:
                 subtitles_path = self.generate_subtitles(self.tts_path)
-                equalize_subtitles(subtitles_path, 10)
-                subtitles = SubtitlesClip(subtitles_path, generator)
-                subtitles.set_pos(("center", "center"))
+                equalize_subtitles(subtitles_path, subtitle_profile.get("max_chars", 18))
+                subtitles = SubtitlesClip(subtitles_path, generator).set_position(("center", subtitle_profile.get("vertical_position", 0.82)), relative=True)
             except Exception as e:
-                warning(f"Failed to generate subtitles, continuing without subtitles: {e}")
+                warning(f"Failed to generate subtitles from speech recognition: {e}")
+                try:
+                    subtitles_path = self._generate_script_based_subtitles(max_duration)
+                    equalize_subtitles(subtitles_path, subtitle_profile.get("max_chars", 18))
+                    subtitles = SubtitlesClip(subtitles_path, generator).set_position(("center", subtitle_profile.get("vertical_position", 0.82)), relative=True)
+                    success("Recovered subtitles using script-based timing fallback.")
+                except Exception as fallback_error:
+                    warning(f"Failed to generate subtitles, continuing without subtitles: {fallback_error}")
 
         random_song_clip = AudioFileClip(random_song).set_fps(44100)
 

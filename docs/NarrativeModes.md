@@ -12,15 +12,18 @@ Inside the YouTube workspace, the categories are now grouped under `Create Video
 - `story`: scene-based storytelling or comedy
 - `finance`: structured market and business commentary
 - `biblical`: devotional and biblical reflection format
+- `longform_story`: longer sequential story generation with larger scene counts
+- `feature_script`: script-first longer-form generation for large narrated projects
 
 ## What narrative modes generate
 
 Narrative modes create:
 - a subject
-- a short script
+- a script
 - a `visual_bible.json`
 - a `scenes.json`
 - scene-by-scene image prompts with continuity
+- runtime-aware sequencing for short, extended, and long-form scene counts
 
 ## Config
 

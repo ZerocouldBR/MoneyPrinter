@@ -27,14 +27,17 @@ class NarrativeModeService:
         language: str,
         topic_override: str | None = None,
         script_override: str | None = None,
+        scene_count_override: int | None = None,
     ) -> dict:
         mode = str(mode or "story").strip().lower()
         storytelling = get_storytelling_config()
         image_generation = get_image_generation_config()
-        scene_count = min(
-            10,
-            max(storytelling.get("default_scene_count", DEFAULT_SCENE_COUNTS.get(mode, 5)), DEFAULT_SCENE_COUNTS.get(mode, 5))
+        requested_scene_count = scene_count_override or self._infer_requested_scene_count(topic_override or script_override or "")
+        base_scene_count = max(
+            storytelling.get("default_scene_count", DEFAULT_SCENE_COUNTS.get(mode, 5)),
+            DEFAULT_SCENE_COUNTS.get(mode, 5),
         )
+        scene_count = min(120, max(3, requested_scene_count or base_scene_count))
 
         subject = str(topic_override or "").strip() or self.generate_subject(
             mode=mode,
@@ -80,6 +83,7 @@ class NarrativeModeService:
             "script": script,
             "visual_bible": visual_bible,
             "scenes": scenes,
+            "scene_count": scene_count,
         }
 
     def generate_subject(self, mode: str, niche: str, language: str) -> str:
@@ -99,20 +103,23 @@ class NarrativeModeService:
 
     def generate_script(self, mode: str, subject: str, language: str, scene_count: int) -> str:
         mode_instructions = {
-            "story": "Tell a coherent mini-story with a hook, progression, and payoff. It can feel funny, dramatic, or surprising.",
-            "finance": "Explain the market topic clearly, with a strong hook, concise reasoning, and an actionable conclusion.",
-            "biblical": "Create a reverent, inspiring, and accessible devotional reflection rooted in biblical values.",
+            "story": "Tell a coherent mini-story with a hook, progression, escalation, reveal, and payoff. Keep the same protagonist, location logic, and threat logic. Do not introduce random new characters, children, or relationships unless they were already established. Every beat must clearly follow the previous beat.",
+            "finance": "Explain the market topic clearly, with a strong hook, concise reasoning, real-world relevance, and an actionable conclusion.",
+            "biblical": "Create a reverent, inspiring, and accessible devotional reflection rooted in biblical values and a clear spiritual takeaway.",
         }
         prompt = f"""
-        Write a short vertical-video narration in {language} for a YouTube Short.
+        Write a vertical-video narration in {language}.
         Subject: {subject}
         Mode: {mode}
         Guidance: {mode_instructions.get(mode, '')}
 
         Requirements:
-        - Use exactly {scene_count} short narration beats.
+        - Use exactly {scene_count} narration beats.
         - Each beat should be one short sentence.
-        - Maintain continuity between beats.
+        - Beat 1 must hook attention immediately.
+        - Middle beats must progress logically.
+        - Final beat must resolve, reveal, or land emotionally.
+        - Keep entity continuity exact across all beats.
         - No markdown.
         - No numbering.
         - Return only the final narration text.
@@ -173,7 +180,7 @@ class NarrativeModeService:
         scene_count: int,
     ) -> list[dict]:
         prompt = f"""
-        Break the following short-form narration into {scene_count} coherent scenes for AI image generation.
+        Break the following narration into {scene_count} coherent scenes for AI image generation.
 
         Subject: {subject}
         Mode: {mode}
@@ -189,10 +196,12 @@ class NarrativeModeService:
         - purpose
 
         Rules:
-        - image prompts must keep continuity between scenes
-        - keep the same character/style/setting unless the narration clearly changes it
-        - make prompts visually rich and cinematic for vertical short videos
+        - image prompts must keep strict continuity between scenes
+        - keep the same protagonist, relationships, and setting logic unless the script explicitly changes them
+        - do not invent children, friends, couples, or extra characters unless the script clearly introduces them
+        - make prompts visually rich and cinematic for vertical videos
         - narration must remain concise and aligned with the script
+        - each scene must feel like the next chronological beat of the same story
         """
         response = generate_text(prompt)
         scenes = self._parse_json_array(response)
@@ -213,6 +222,18 @@ class NarrativeModeService:
                 }
             )
         return normalized[:scene_count]
+
+    def _infer_requested_scene_count(self, text: str) -> int | None:
+        raw_text = str(text or "")
+        if not raw_text:
+            return None
+        match = re.search(r"(\d{1,2})\s*(?:partes|parts|scenes|cenas|beats)", raw_text, re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            return max(3, int(match.group(1)))
+        except Exception:
+            return None
 
     def _clean_text(self, value) -> str:
         text = str(value or "")

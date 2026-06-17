@@ -308,12 +308,241 @@ def get_outreach_message_body_file() -> str:
 
 def get_tts_voice() -> str:
     """
-    Gets the TTS voice from the config file.
+    Gets the legacy default TTS voice from the config file.
 
     Returns:
         voice (str): The TTS voice
     """
     return str(_get_config_value("tts_voice", "Jasper"))
+
+
+def get_tts_config() -> dict:
+    """
+    Gets the TTS configuration with language-aware defaults.
+
+    Returns:
+        config (dict): TTS settings
+    """
+    raw_config = _get_config_value("tts", {})
+    if not isinstance(raw_config, dict):
+        raw_config = {}
+
+    raw_profiles = raw_config.get("language_profiles", {})
+    if not isinstance(raw_profiles, dict):
+        raw_profiles = {}
+
+    def _normalize_language_profile(language_key: str, fallback_voice: str, fallback_label: str) -> dict:
+        profile = raw_profiles.get(language_key, {})
+        if not isinstance(profile, dict):
+            profile = {}
+
+        default_provider = str(profile.get("provider", raw_config.get("default_provider", "edge"))).strip().lower() or "edge"
+        default_voice = str(profile.get("voice", fallback_voice)).strip() or fallback_voice
+
+        raw_variants = profile.get("variants", {})
+        if not isinstance(raw_variants, dict) or not raw_variants:
+            raw_variants = {
+                "default": {
+                    "label": fallback_label,
+                    "provider": default_provider,
+                    "voice": default_voice,
+                }
+            }
+
+        variants = {}
+        for variant_key, variant_value in raw_variants.items():
+            if not isinstance(variant_value, dict):
+                continue
+            normalized_key = str(variant_key).strip().lower() or "default"
+            variants[normalized_key] = {
+                "label": str(variant_value.get("label", normalized_key.title())).strip() or normalized_key.title(),
+                "provider": str(variant_value.get("provider", default_provider)).strip().lower() or default_provider,
+                "voice": str(variant_value.get("voice", default_voice)).strip() or default_voice,
+            }
+
+        if not variants:
+            variants = {
+                "default": {
+                    "label": fallback_label,
+                    "provider": default_provider,
+                    "voice": default_voice,
+                }
+            }
+
+        default_variant = str(profile.get("default_variant", next(iter(variants.keys())))).strip().lower()
+        if default_variant not in variants:
+            default_variant = next(iter(variants.keys()))
+
+        return {
+            "provider": default_provider,
+            "voice": default_voice,
+            "default_variant": default_variant,
+            "variants": variants,
+        }
+
+    return {
+        "default_provider": str(raw_config.get("default_provider", "edge")).strip().lower() or "edge",
+        "default_language": str(raw_config.get("default_language", "english")).strip().lower() or "english",
+        "language_profiles": {
+            "english": _normalize_language_profile("english", "en-US-GuyNeural", "English Default"),
+            "portuguese": _normalize_language_profile("portuguese", "pt-BR-AntonioNeural", "Portuguese Default"),
+        },
+        "legacy_voice": get_tts_voice(),
+    }
+
+
+def get_subtitle_style_config() -> dict:
+    """
+    Gets subtitle styling defaults.
+
+    Returns:
+        config (dict): Subtitle display settings
+    """
+    raw_config = _get_config_value("subtitle_style", {})
+    if not isinstance(raw_config, dict):
+        raw_config = {}
+
+    def _normalize_profile(profile: dict, fallback: dict) -> dict:
+        if not isinstance(profile, dict):
+            profile = {}
+
+        vertical_position = profile.get("vertical_position", fallback["vertical_position"])
+        try:
+            vertical_position = float(vertical_position)
+        except (TypeError, ValueError):
+            vertical_position = fallback["vertical_position"]
+
+        background_opacity = profile.get("background_opacity", fallback["background_opacity"])
+        try:
+            background_opacity = float(background_opacity)
+        except (TypeError, ValueError):
+            background_opacity = fallback["background_opacity"]
+
+        return {
+            "font_size": max(36, int(profile.get("font_size", fallback["font_size"]))),
+            "box_width": max(480, int(profile.get("box_width", fallback["box_width"]))),
+            "box_height": max(120, int(profile.get("box_height", fallback["box_height"]))),
+            "vertical_position": min(0.92, max(0.55, vertical_position)),
+            "max_chars": max(10, int(profile.get("max_chars", fallback["max_chars"]))),
+            "stroke_color": str(profile.get("stroke_color", fallback["stroke_color"])).strip() or fallback["stroke_color"],
+            "background_opacity": min(1.0, max(0.0, background_opacity)),
+            "background_padding_x": max(0, int(profile.get("background_padding_x", fallback["background_padding_x"]))),
+            "background_padding_y": max(0, int(profile.get("background_padding_y", fallback["background_padding_y"]))),
+        }
+
+    def _merge_profile(base: dict, override: dict) -> dict:
+        merged = dict(base)
+        merged.update(_normalize_profile(override, base))
+        return merged
+
+    default_english = {
+        "font_size": 68,
+        "box_width": 900,
+        "box_height": 250,
+        "vertical_position": 0.82,
+        "max_chars": 18,
+        "stroke_color": "#101010",
+        "background_opacity": 0.32,
+        "background_padding_x": 48,
+        "background_padding_y": 22,
+    }
+    default_portuguese = {
+        "font_size": 62,
+        "box_width": 940,
+        "box_height": 280,
+        "vertical_position": 0.84,
+        "max_chars": 16,
+        "stroke_color": "#111111",
+        "background_opacity": 0.36,
+        "background_padding_x": 52,
+        "background_padding_y": 24,
+    }
+
+    default_category_overrides = {
+        "classic": {},
+        "story": {
+            "vertical_position": 0.87,
+            "box_height": 270,
+            "background_opacity": 0.30,
+            "background_padding_x": 56,
+            "background_padding_y": 26,
+            "stroke_color": "#141414",
+        },
+        "finance": {
+            "font_size": 58,
+            "box_width": 980,
+            "box_height": 236,
+            "vertical_position": 0.89,
+            "max_chars": 20,
+            "background_opacity": 0.24,
+            "background_padding_x": 42,
+            "background_padding_y": 18,
+            "stroke_color": "#0B1220",
+        },
+        "biblical": {
+            "font_size": 60,
+            "box_width": 960,
+            "box_height": 300,
+            "vertical_position": 0.88,
+            "max_chars": 17,
+            "background_opacity": 0.40,
+            "background_padding_x": 60,
+            "background_padding_y": 28,
+            "stroke_color": "#1F1A17",
+        },
+    }
+
+    language_profiles = raw_config.get("language_profiles", {})
+    if not isinstance(language_profiles, dict):
+        language_profiles = {}
+
+    def _normalize_language(language_key: str, fallback: dict) -> dict:
+        raw_language_profile = language_profiles.get(language_key, {})
+        if not isinstance(raw_language_profile, dict):
+            raw_language_profile = {}
+
+        base_profile = _normalize_profile(raw_language_profile, fallback)
+        raw_category_profiles = raw_language_profile.get("category_profiles", {})
+        if not isinstance(raw_category_profiles, dict):
+            raw_category_profiles = {}
+
+        category_profiles = {}
+        for category_key, category_fallback in default_category_overrides.items():
+            effective_fallback = _merge_profile(base_profile, category_fallback)
+            category_profiles[category_key] = _normalize_profile(
+                raw_category_profiles.get(category_key, category_fallback),
+                effective_fallback,
+            )
+
+        return {
+            **base_profile,
+            "category_profiles": category_profiles,
+        }
+
+    english_profile = _normalize_language("english", default_english)
+    portuguese_profile = _normalize_language("portuguese", default_portuguese)
+
+    background_opacity = raw_config.get("background_opacity", 0.35)
+    try:
+        background_opacity = float(background_opacity)
+    except (TypeError, ValueError):
+        background_opacity = 0.35
+
+    return {
+        "enabled": bool(raw_config.get("enabled", True)),
+        "color": str(raw_config.get("color", "#F8F8F2")).strip() or "#F8F8F2",
+        "stroke_color": str(raw_config.get("stroke_color", "#101010")).strip() or "#101010",
+        "stroke_width": max(0, int(raw_config.get("stroke_width", 4))),
+        "background_enabled": bool(raw_config.get("background_enabled", True)),
+        "background_color": str(raw_config.get("background_color", "black")).strip() or "black",
+        "background_opacity": min(1.0, max(0.0, background_opacity)),
+        "background_padding_x": max(0, int(raw_config.get("background_padding_x", 50))),
+        "background_padding_y": max(0, int(raw_config.get("background_padding_y", 24))),
+        "language_profiles": {
+            "english": english_profile,
+            "portuguese": portuguese_profile,
+        },
+    }
 
 
 def get_assemblyai_api_key() -> str:

@@ -11,10 +11,11 @@ if ROOT_DIR not in sys.path:
 
 class RuntimeCompatTests(unittest.TestCase):
     def test_pillow_antialias_alias_exists(self) -> None:
-        importlib.import_module("sitecustomize")
+        module = importlib.import_module("sitecustomize")
         from PIL import Image
 
         self.assertTrue(hasattr(Image, "ANTIALIAS"))
+        self.assertTrue(hasattr(module, "_enable_utf8_console_on_windows"))
 
 
 if __name__ == "__main__":

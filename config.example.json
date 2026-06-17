@@ -59,6 +59,109 @@
   "whisper_compute_type": "int8",
   "assembly_ai_api_key": "",
   "tts_voice": "Jasper",
+  "tts": {
+    "default_provider": "edge",
+    "default_language": "english",
+    "language_profiles": {
+      "english": {
+        "default_variant": "male",
+        "variants": {
+          "male": {
+            "label": "English Male",
+            "provider": "edge",
+            "voice": "en-US-GuyNeural"
+          },
+          "female": {
+            "label": "English Female",
+            "provider": "edge",
+            "voice": "en-US-JennyNeural"
+          }
+        }
+      },
+      "portuguese": {
+        "default_variant": "male",
+        "variants": {
+          "male": {
+            "label": "Portuguese Male",
+            "provider": "edge",
+            "voice": "pt-BR-AntonioNeural"
+          },
+          "female": {
+            "label": "Portuguese Female",
+            "provider": "edge",
+            "voice": "pt-BR-FranciscaNeural"
+          }
+        }
+      }
+    }
+  },
+  "subtitle_style": {
+    "enabled": true,
+    "color": "#F8F8F2",
+    "stroke_color": "#101010",
+    "stroke_width": 4,
+    "background_enabled": true,
+    "background_color": "black",
+    "background_opacity": 0.35,
+    "background_padding_x": 50,
+    "background_padding_y": 24,
+    "language_profiles": {
+      "english": {
+        "font_size": 68,
+        "box_width": 900,
+        "box_height": 250,
+        "vertical_position": 0.82,
+        "max_chars": 18,
+        "category_profiles": {
+          "story": {
+            "vertical_position": 0.86,
+            "box_height": 260
+          },
+          "finance": {
+            "font_size": 58,
+            "box_width": 980,
+            "box_height": 240,
+            "vertical_position": 0.88,
+            "max_chars": 20
+          },
+          "biblical": {
+            "font_size": 60,
+            "box_width": 960,
+            "box_height": 300,
+            "vertical_position": 0.87,
+            "max_chars": 17
+          }
+        }
+      },
+      "portuguese": {
+        "font_size": 62,
+        "box_width": 940,
+        "box_height": 280,
+        "vertical_position": 0.84,
+        "max_chars": 16,
+        "category_profiles": {
+          "story": {
+            "vertical_position": 0.86,
+            "box_height": 290
+          },
+          "finance": {
+            "font_size": 56,
+            "box_width": 1000,
+            "box_height": 250,
+            "vertical_position": 0.88,
+            "max_chars": 18
+          },
+          "biblical": {
+            "font_size": 58,
+            "box_width": 980,
+            "box_height": 320,
+            "vertical_position": 0.88,
+            "max_chars": 16
+          }
+        }
+      }
+    }
+  },
   "font": "bold_font.ttf",
   "imagemagick_path": "Path to magick.exe or on linux/macOS just /usr/bin/convert",
   "script_sentence_length": 4,

@@ -149,14 +149,21 @@ Use:
   - `Story / Entertainment Short`
   - `Market Commentary / Finance Short`
   - `Biblical / Devotional Short`
+  - `Long-form Story Video`
+  - `Feature / Long Script Video`
 
 The religion category now lives inside the video-creation menu, grouped with the other content categories.
 
+During creation, you can now also choose:
+- video language: English or Portuguese
+- narrator voice profile for that language, such as male or female
+
 These modes generate:
 - a subject
-- a coherent short script
+- a coherent script
 - a visual bible
 - scene-by-scene prompts with continuity
+- short, extended, or long-form scene timelines depending on the selected runtime profile
 
 ### Image generation provider config
 
