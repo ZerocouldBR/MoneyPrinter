@@ -8,7 +8,7 @@ from status import *
 from config import *
 
 DEFAULT_SONG_ARCHIVE_URLS = []
-PERSISTENT_MP_DIRS = {"image_cache"}
+PERSISTENT_MP_DIRS = {"image_cache", "firefox_profiles"}
 
 
 def close_running_selenium_instances() -> None:
@@ -47,7 +47,7 @@ def build_url(youtube_video_id: str) -> str:
 
 def rem_temp_files() -> None:
     """
-    Removes temporary files in the `.mp` directory while preserving persistent caches.
+    Removes only safe temporary files in the `.mp` directory while preserving generated assets.
 
     Returns:
         None
@@ -55,6 +55,9 @@ def rem_temp_files() -> None:
     mp_dir = os.path.join(ROOT_DIR, ".mp")
     if not os.path.isdir(mp_dir):
         return
+
+    removable_suffixes = {".tmp", ".part", ".partial", ".crdownload", ".log"}
+    removable_prefixes = {"TEMP_MPY_"}
 
     for name in os.listdir(mp_dir):
         path = os.path.join(mp_dir, name)
@@ -65,13 +68,14 @@ def rem_temp_files() -> None:
             warning(f"Skipping unexpected directory in .mp cleanup: {path}")
             continue
 
-        if name.endswith(".json"):
+        if name.endswith(".json") or name.endswith(".jsonl"):
             continue
 
-        try:
-            os.remove(path)
-        except Exception as exc:
-            warning(f"Could not remove temporary file {path}: {exc}")
+        if any(name.startswith(prefix) for prefix in removable_prefixes) or os.path.splitext(name)[1].lower() in removable_suffixes:
+            try:
+                os.remove(path)
+            except Exception as exc:
+                warning(f"Could not remove temporary file {path}: {exc}")
 
 
 def fetch_songs() -> None:

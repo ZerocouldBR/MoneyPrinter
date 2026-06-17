@@ -28,14 +28,44 @@ TWITTER_CRON_OPTIONS = [
 ]
 
 YOUTUBE_OPTIONS = [
-    "Upload Short",
-    "Create Short with Cached Images",
-    "Create Story Short",
-    "Create Market Commentary Short",
-    "Create Biblical / Devotional Short",
-    "Show all Shorts",
-    "Setup CRON Job",
-    "Quit"
+    "Create Videos",
+    "Generate Topics and Insights",
+    "Upload Current Generated Video",
+    "Review Generated Projects",
+    "Show Uploaded Shorts",
+    "Automation and Scheduling",
+    "Guides and Category Instructions",
+    "Back"
+]
+
+YOUTUBE_CREATE_OPTIONS = [
+    "Classic Short",
+    "Short with Cached Images",
+    "Story / Entertainment Short",
+    "Market Commentary / Finance Short",
+    "Biblical / Devotional Short",
+    "Back"
+]
+
+YOUTUBE_INSIGHT_OPTIONS = [
+    "Classic Topic Idea",
+    "Story Idea",
+    "Market Insight",
+    "Biblical / Devotional Reflection",
+    "Back"
+]
+
+YOUTUBE_GUIDE_OPTIONS = [
+    "Content Category Guide",
+    "Real Video Production Guide",
+    "Back"
+]
+
+YOUTUBE_REVIEW_OPTIONS = [
+    "List Generated Projects",
+    "Show Generated Project Details",
+    "Show Uploaded Shorts",
+    "Back"
 ]
 
 YOUTUBE_CRON_OPTIONS = [

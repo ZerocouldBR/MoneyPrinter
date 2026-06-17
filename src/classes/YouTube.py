@@ -787,6 +787,7 @@ class YouTube:
             "images": list(getattr(self, "images", [])),
             "video_path": getattr(self, "video_path", None),
             "exported_video_path": exported_video_path,
+            "project_dir": getattr(self, "exported_video_dir", None),
             "research_brief": getattr(self, "research_brief", ""),
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }

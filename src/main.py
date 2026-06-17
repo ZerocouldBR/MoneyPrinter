@@ -18,7 +18,7 @@ from classes.YouTube import YouTube
 from prettytable import PrettyTable
 from classes.Outreach import Outreach
 from classes.AFM import AffiliateMarketing
-from llm_provider import list_models, select_model, get_active_model
+from llm_provider import list_models, select_model, get_active_model, generate_text
 from post_bridge_integration import maybe_crosspost_youtube_short
 from cached_image_workflow import (
     generate_video_reusing_cached_images,
@@ -121,6 +121,207 @@ def generate_youtube_narrative_short(youtube: YouTube, tts: TTS, mode: str) -> N
         success(f'Persistent exported copy: "{exported_video_path}"')
     if exported_video_dir:
         success(f'Video project folder: "{exported_video_dir}"')
+
+
+
+def ask_menu_choice(title: str, options: list[str]) -> int:
+    while True:
+        info(f"\n============ {title.upper()} ============", False)
+        for idx, option in enumerate(options, start=1):
+            print(colored(f" {idx}. {option}", "cyan"))
+        info("=================================\n", False)
+        raw = question("Select an option: ").strip()
+        try:
+            selected = int(raw)
+            if 1 <= selected <= len(options):
+                return selected
+        except ValueError:
+            pass
+        warning("Invalid option. Please choose one of the listed numbers.")
+
+
+
+def show_uploaded_youtube_shorts(youtube: YouTube) -> None:
+    videos = youtube.get_videos()
+    if len(videos) > 0:
+        videos_table = PrettyTable()
+        videos_table.field_names = ["ID", "Date", "Title"]
+
+        for video in videos:
+            videos_table.add_row(
+                [
+                    videos.index(video) + 1,
+                    colored(video["date"], "blue"),
+                    colored(video["title"][:60] + "...", "green"),
+                ]
+            )
+
+        print(videos_table)
+    else:
+        warning("No uploaded shorts found.")
+
+
+
+def generate_youtube_insight(youtube: YouTube, mode: str) -> None:
+    custom_topic = question("Optional custom topic/context for the insight: ").strip() or None
+
+    if mode == "classic":
+        prompt = f"""
+        Generate one high-potential YouTube Shorts idea for this channel.
+        Niche: {youtube.niche}
+        Language: {youtube.language}
+        Optional context: {custom_topic or 'none'}
+
+        Return plain text only with this structure:
+        Topic: ...
+        Hook: ...
+        Angle: ...
+        Why it can work: ...
+        """
+        insight = str(generate_text(prompt)).strip()
+        info("\nClassic insight:\n", False)
+        print(insight)
+        return
+
+    planner = NarrativeModeService()
+    plan = planner.build_plan(
+        mode=mode,
+        niche=youtube.niche,
+        language=youtube.language,
+        topic_override=custom_topic,
+        script_override=None,
+    )
+
+    table = PrettyTable()
+    table.field_names = ["Field", "Value"]
+    table.add_row(["mode", plan.get("mode_label", mode)])
+    table.add_row(["subject", plan.get("subject", "")])
+    table.add_row(["script_preview", str(plan.get("script", ""))[:220]])
+    table.add_row(["scenes", len(plan.get("scenes", []))])
+    print(table)
+
+    scenes = plan.get("scenes", [])
+    if scenes:
+        scenes_table = PrettyTable()
+        scenes_table.field_names = ["Scene", "Purpose", "Narration"]
+        for scene in scenes:
+            scenes_table.add_row([
+                scene.get("scene_number", ""),
+                str(scene.get("purpose", ""))[:28],
+                str(scene.get("narration", ""))[:72],
+            ])
+        print(scenes_table)
+
+
+
+def show_content_category_guide() -> None:
+    table = PrettyTable()
+    table.field_names = ["Category", "Best for", "How it should feel"]
+    table.add_row(["Classic", "General faceless Shorts", "Fast, clear, broad, image-led"]) 
+    table.add_row(["Story / Entertainment", "Retention and repeat viewing", "Hook, escalation, payoff, strong continuity"])
+    table.add_row(["Market / Finance", "News, business, market updates", "Specific, timely, sourced, practical"])
+    table.add_row(["Biblical / Devotional", "Faith, reflection, encouragement", "Reverent, accurate, calm, scripture-aware"])
+    print(table)
+
+    info("Category rules:", False)
+    print("- Story: use a clear protagonist, one conflict, one payoff.")
+    print("- Finance: anchor claims to real events, dates, prices, or sources.")
+    print("- Biblical: cite the verse or passage theme, avoid invented quotations.")
+    print("- Classic: keep it simple when speed matters more than narrative depth.")
+
+
+
+def show_real_video_production_guide() -> None:
+    info("\nREAL VIDEO PRODUCTION GUIDE", False)
+    print("1. Start with a subject that can be verified in the real world.")
+    print("2. Keep the hook inside the first 1 to 2 seconds.")
+    print("3. Use real references in references.txt, especially for finance and news.")
+    print("4. For finance videos, include date context and avoid unverifiable promises.")
+    print("5. For biblical videos, base the message on a real passage and keep the tone reverent.")
+    print("6. Review scenes.json before upload if the topic is sensitive or factual.")
+    print("7. Confirm that video.mp4 exists in outputs/youtube/<project>/ before uploading.")
+    print("8. Keep generated assets, script, prompts, and references together for auditability.")
+    print("9. If you are using scene video generation, start with only the first scene in video mode.")
+    print("10. Upload only after watching the final mp4 locally from start to finish.")
+
+
+
+def upload_current_youtube_video(youtube: YouTube) -> None:
+    if not getattr(youtube, "video_path", None):
+        warning("No current generated video is loaded in memory. Generate a video first in this session.")
+        return
+    if not os.path.exists(youtube.video_path):
+        warning(f"Current generated video was not found: {youtube.video_path}")
+        return
+    maybe_upload_youtube_short(youtube)
+
+
+
+def review_generated_projects_menu(youtube: YouTube) -> None:
+    while True:
+        user_input = ask_menu_choice("Review Projects", YOUTUBE_REVIEW_OPTIONS)
+        if user_input == 1:
+            list_generated_projects()
+        elif user_input == 2:
+            project_name = question("Enter the project folder name: ").strip()
+            if project_name:
+                show_generated_project(project_name)
+        elif user_input == 3:
+            show_uploaded_youtube_shorts(youtube)
+        else:
+            break
+
+
+
+def youtube_guides_menu() -> None:
+    while True:
+        user_input = ask_menu_choice("Guides", YOUTUBE_GUIDE_OPTIONS)
+        if user_input == 1:
+            show_content_category_guide()
+        elif user_input == 2:
+            show_real_video_production_guide()
+        else:
+            break
+
+
+
+def youtube_insights_menu(youtube: YouTube) -> None:
+    while True:
+        user_input = ask_menu_choice("Topics and Insights", YOUTUBE_INSIGHT_OPTIONS)
+        if user_input == 1:
+            generate_youtube_insight(youtube, mode="classic")
+        elif user_input == 2:
+            generate_youtube_insight(youtube, mode="story")
+        elif user_input == 3:
+            generate_youtube_insight(youtube, mode="finance")
+        elif user_input == 4:
+            generate_youtube_insight(youtube, mode="biblical")
+        else:
+            break
+
+
+
+def youtube_create_menu(youtube: YouTube, tts: TTS) -> None:
+    while True:
+        user_input = ask_menu_choice("Create Videos", YOUTUBE_CREATE_OPTIONS)
+        if user_input == 1:
+            generate_youtube_short(youtube, tts)
+            maybe_upload_youtube_short(youtube)
+        elif user_input == 2:
+            generated_path = generate_video_reusing_cached_images(youtube, tts)
+            if generated_path:
+                maybe_upload_youtube_short(youtube)
+        elif user_input == 3:
+            generate_youtube_narrative_short(youtube, tts, mode="story")
+            maybe_upload_youtube_short(youtube)
+        elif user_input == 4:
+            generate_youtube_narrative_short(youtube, tts, mode="finance")
+            maybe_upload_youtube_short(youtube)
+        elif user_input == 5:
+            generate_youtube_narrative_short(youtube, tts, mode="biblical")
+            maybe_upload_youtube_short(youtube)
+        else:
+            break
 
 
 
@@ -364,61 +565,22 @@ def main():
 
                 while True:
                     rem_temp_files()
-                    info("\n============ OPTIONS ============", False)
-
-                    for idx, youtube_option in enumerate(YOUTUBE_OPTIONS):
-                        print(colored(f" {idx + 1}. {youtube_option}", "cyan"))
-
-                    info("=================================\n", False)
-
-                    user_input = int(question("Select an option: "))
+                    user_input = ask_menu_choice("YouTube Workspace", YOUTUBE_OPTIONS)
                     tts = TTS()
 
                     if user_input == 1:
-                        generate_youtube_short(youtube, tts)
-                        maybe_upload_youtube_short(youtube)
+                        youtube_create_menu(youtube, tts)
                     elif user_input == 2:
-                        generated_path = generate_video_reusing_cached_images(youtube, tts)
-                        if generated_path:
-                            maybe_upload_youtube_short(youtube)
+                        youtube_insights_menu(youtube)
                     elif user_input == 3:
-                        generate_youtube_narrative_short(youtube, tts, mode="story")
-                        maybe_upload_youtube_short(youtube)
+                        upload_current_youtube_video(youtube)
                     elif user_input == 4:
-                        generate_youtube_narrative_short(youtube, tts, mode="finance")
-                        maybe_upload_youtube_short(youtube)
+                        review_generated_projects_menu(youtube)
                     elif user_input == 5:
-                        generate_youtube_narrative_short(youtube, tts, mode="biblical")
-                        maybe_upload_youtube_short(youtube)
+                        show_uploaded_youtube_shorts(youtube)
                     elif user_input == 6:
-                        videos = youtube.get_videos()
-
-                        if len(videos) > 0:
-                            videos_table = PrettyTable()
-                            videos_table.field_names = ["ID", "Date", "Title"]
-
-                            for video in videos:
-                                videos_table.add_row(
-                                    [
-                                        videos.index(video) + 1,
-                                        colored(video["date"], "blue"),
-                                        colored(video["title"][:60] + "...", "green"),
-                                    ]
-                                )
-
-                            print(videos_table)
-                        else:
-                            warning(" No videos found.")
-                    elif user_input == 7:
                         info("How often do you want to upload?")
-
-                        info("\n============ OPTIONS ============", False)
-                        for idx, cron_option in enumerate(YOUTUBE_CRON_OPTIONS):
-                            print(colored(f" {idx + 1}. {cron_option}", "cyan"))
-
-                        info("=================================\n", False)
-
-                        user_input = int(question("Select an Option: "))
+                        cron_choice = ask_menu_choice("YouTube Automation", YOUTUBE_CRON_OPTIONS)
 
                         cron_script_path = os.path.join(ROOT_DIR, "src", "cron.py")
                         command = ["python", cron_script_path, "youtube", selected_account["id"], get_active_model()]
@@ -426,15 +588,20 @@ def main():
                         def job():
                             subprocess.run(command)
 
-                        if user_input == 1:
+                        if cron_choice == 1:
                             schedule.every(1).day.do(job)
                             success("Set up CRON Job.")
-                        elif user_input == 2:
+                        elif cron_choice == 2:
                             schedule.every().day.at("10:00").do(job)
                             schedule.every().day.at("16:00").do(job)
                             success("Set up CRON Job.")
-                        else:
-                            break
+                        elif cron_choice == 3:
+                            schedule.every().day.at("08:00").do(job)
+                            schedule.every().day.at("12:00").do(job)
+                            schedule.every().day.at("18:00").do(job)
+                            success("Set up CRON Job.")
+                    elif user_input == 7:
+                        youtube_guides_menu()
                     elif user_input == 8:
                         if get_verbose():
                             info(" => Climbing Options Ladder...", False)

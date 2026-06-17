@@ -2,6 +2,10 @@
 
 MoneyPrinter supports multiple YouTube creation modes for more coherent scene planning.
 
+## Menu organization
+
+Inside the YouTube workspace, the categories are now grouped under `Create Videos` and `Generate Topics and Insights` instead of being scattered in the main menu.
+
 ## Modes
 
 - `classic`: regular short generation using automatic prompts

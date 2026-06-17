@@ -119,6 +119,8 @@ Each project folder contains:
 - `images/`
 - `scene_videos/` (when scene video generation is enabled)
 
+Generated media is now preserved automatically. Temporary cleanup no longer deletes created `.mp4`, image, or audio assets.
+
 ### Project review commands
 
 ```bash
@@ -137,10 +139,18 @@ python src/main.py images list
 
 ### Narrative creation modes
 
-The YouTube flow now supports dedicated narrative modes:
-- `Create Story Short`
-- `Create Market Commentary Short`
-- `Create Biblical / Devotional Short`
+The YouTube workspace is now organized into submenus.
+
+Use:
+- `Create Videos`
+- then choose one of:
+  - `Classic Short`
+  - `Short with Cached Images`
+  - `Story / Entertainment Short`
+  - `Market Commentary / Finance Short`
+  - `Biblical / Devotional Short`
+
+The religion category now lives inside the video-creation menu, grouped with the other content categories.
 
 These modes generate:
 - a subject
@@ -185,7 +195,8 @@ When enabled, narrative modes can generate the first N scenes as video clips and
 
 ### Manual topic or script input
 
-In the YouTube flow, choose `Upload Short` and then:
+In the YouTube flow, choose `Create Videos` and then a category.
+After that you can:
 - press `ENTER` to keep automatic topic and script generation, or
 - provide a custom topic, and optionally
 - paste your own full script and finish with a line containing only `END`
@@ -198,6 +209,7 @@ Additional project workflow documentation:
 - [Generated YouTube Project Folders](docs/GeneratedProjects.md)
 - [Image Library Recovery and Reuse](docs/ImageLibrary.md)
 - [Narrative Modes](docs/NarrativeModes.md)
+- [Real Video Production Guide](docs/RealVideoProduction.md)
 
 ## Scripts
 
