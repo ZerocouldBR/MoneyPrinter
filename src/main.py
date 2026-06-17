@@ -24,6 +24,7 @@ from cached_image_workflow import (
     generate_video_reusing_cached_images,
     generate_video_with_image_preservation,
 )
+from image_library import recover_image_library, list_image_library_projects
 
 
 def ask_yes_no(prompt: str) -> bool:
@@ -168,6 +169,31 @@ def handle_cli_command() -> bool:
         return False
 
     command = str(sys.argv[1]).strip().lower()
+
+    if command == "images":
+        action = str(sys.argv[2]).strip().lower() if len(sys.argv) > 2 else "list"
+        if action == "recover":
+            result = recover_image_library()
+            success(
+                f"Recovered {result['projects_created']} image batch project(s) into {result['library_dir']}"
+            )
+            return True
+        if action == "list":
+            table = PrettyTable()
+            table.field_names = ["Project", "Type", "Topic", "Images", "Created At"]
+            for project in list_image_library_projects():
+                table.add_row([
+                    project.get("name", ""),
+                    project.get("type", ""),
+                    str(project.get("topic", ""))[:50],
+                    project.get("image_count", 0),
+                    project.get("created_at", ""),
+                ])
+            print(table)
+            return True
+
+        error("Unknown images command. Supported: images recover | images list")
+        sys.exit(1)
 
     if command == "projects":
         action = str(sys.argv[2]).strip().lower() if len(sys.argv) > 2 else "list"

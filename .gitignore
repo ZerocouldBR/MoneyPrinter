@@ -32,7 +32,9 @@ token.json
 
 # Application data and generated output
 .mp/
+outputs/
 Songs/
+geckodriver.log
 niche.txt
 auto.sh
 outreach_message.html

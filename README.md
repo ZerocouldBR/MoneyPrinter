@@ -124,6 +124,12 @@ python src/main.py projects list
 
 # Show details for one generated project folder
 python src/main.py projects show <project_folder_name>
+
+# Recover older cached images into an organized image library
+python src/main.py images recover
+
+# List recovered image-library batches
+python src/main.py images list
 ```
 
 ### Manual topic or script input
@@ -139,6 +145,7 @@ All relevant documents can be found [here](docs/).
 
 Additional project workflow documentation:
 - [Generated YouTube Project Folders](docs/GeneratedProjects.md)
+- [Image Library Recovery and Reuse](docs/ImageLibrary.md)
 
 ## Scripts
 
