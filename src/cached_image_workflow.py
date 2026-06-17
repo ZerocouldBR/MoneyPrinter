@@ -78,10 +78,10 @@ def preserve_generated_images(image_paths: List[str] | None = None) -> List[str]
     return preserved
 
 
-def generate_video_with_image_preservation(youtube, tts_instance) -> str:
+def generate_video_with_image_preservation(youtube, tts_instance, **generate_kwargs) -> str:
     """Generate a video normally and preserve generated images for reuse."""
     try:
-        path = youtube.generate_video(tts_instance)
+        path = youtube.generate_video(tts_instance, **generate_kwargs)
         preserve_generated_images(getattr(youtube, "images", []))
         return path
     except Exception:
@@ -98,14 +98,19 @@ def generate_video_reusing_cached_images(youtube, tts_instance, limit: int = 20)
 
     info(f" => Reusing {len(cached_images)} cached image(s).")
 
+    if hasattr(youtube, "_reset_generation_state"):
+        youtube._reset_generation_state()
+
     youtube.generate_topic()
     youtube.generate_script()
     youtube.generate_metadata()
-    youtube.images = cached_images
+    youtube.images = list(cached_images)
     youtube.generate_script_to_speech(tts_instance)
 
     path = youtube.combine()
     youtube.video_path = os.path.abspath(path)
+    if hasattr(youtube, "_save_generation_manifest"):
+        youtube._save_generation_manifest()
 
     if hasattr(youtube, "metadata"):
         youtube.add_video(
@@ -118,4 +123,10 @@ def generate_video_reusing_cached_images(youtube, tts_instance, limit: int = 20)
         )
 
     success(f'Generated video with cached images: "{path}"')
+    exported_video_path = getattr(youtube, "exported_video_path", None)
+    exported_video_dir = getattr(youtube, "exported_video_dir", None)
+    if exported_video_path:
+        success(f'Persistent exported copy: "{exported_video_path}"')
+    if exported_video_dir:
+        success(f'Video project folder: "{exported_video_dir}"')
     return path

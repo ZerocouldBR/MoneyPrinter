@@ -1,3 +1,5 @@
+import json
+import os
 import sys
 import schedule
 import subprocess
@@ -24,9 +26,19 @@ from cached_image_workflow import (
 )
 
 
+def ask_yes_no(prompt: str) -> bool:
+    while True:
+        response = question(prompt).strip().lower()
+        if response in {"yes", "y", "sim", "s", "1"}:
+            return True
+        if response in {"no", "n", "nao", "não", "0"}:
+            return False
+        warning("Please answer with Yes/No, Y/N, Sim/Não, or 1/0.")
+
+
+
 def maybe_upload_youtube_short(youtube: YouTube) -> None:
-    upload_to_yt = question("Do you want to upload this video to YouTube? (Yes/No): ")
-    if upload_to_yt.lower() == "yes":
+    if ask_yes_no("Do you want to upload this video to YouTube? (Yes/No): "):
         upload_success = youtube.upload_video()
         if upload_success:
             maybe_crosspost_youtube_short(
@@ -36,6 +48,144 @@ def maybe_upload_youtube_short(youtube: YouTube) -> None:
             )
         else:
             warning("YouTube upload failed. Skipping Post Bridge cross-post.")
+
+
+def prompt_youtube_generation_inputs() -> tuple[str | None, str | None]:
+    info("Press ENTER to use automatic topic/script generation.", False)
+    custom_topic = question("Optional custom topic: ").strip()
+    if not custom_topic:
+        return None, None
+
+    if not ask_yes_no("Do you want to provide your own full script? (Yes/No): "):
+        return custom_topic, None
+
+    info(
+        "Paste your script below. Finish with a single line containing only END.",
+        False,
+    )
+    lines = []
+    while True:
+        line = input().rstrip("\n")
+        if line.strip() == "END":
+            break
+        lines.append(line)
+
+    custom_script = "\n".join(lines).strip()
+    return custom_topic, custom_script or None
+
+
+def generate_youtube_short(youtube: YouTube, tts: TTS) -> None:
+    custom_topic, custom_script = prompt_youtube_generation_inputs()
+    generated_path = generate_video_with_image_preservation(
+        youtube,
+        tts,
+        topic=custom_topic,
+        script_override=custom_script,
+    )
+    success(f'Generated local video at "{generated_path}"')
+    exported_video_path = getattr(youtube, "exported_video_path", None)
+    exported_video_dir = getattr(youtube, "exported_video_dir", None)
+    if exported_video_path:
+        success(f'Persistent exported copy: "{exported_video_path}"')
+    if exported_video_dir:
+        success(f'Video project folder: "{exported_video_dir}"')
+
+
+def get_generated_projects_dir() -> str:
+    projects_dir = os.path.join(ROOT_DIR, "outputs", "youtube")
+    os.makedirs(projects_dir, exist_ok=True)
+    return projects_dir
+
+
+
+def list_generated_projects() -> None:
+    projects_dir = get_generated_projects_dir()
+    project_names = [
+        name
+        for name in os.listdir(projects_dir)
+        if os.path.isdir(os.path.join(projects_dir, name))
+    ]
+    project_names.sort(reverse=True)
+
+    table = PrettyTable()
+    table.field_names = ["Project", "Generated At", "Subject", "Video"]
+
+    for project_name in project_names:
+        manifest_path = os.path.join(projects_dir, project_name, "manifest.json")
+        manifest = {}
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as file:
+                    manifest = json.load(file) or {}
+            except Exception:
+                manifest = {}
+
+        table.add_row(
+            [
+                project_name,
+                manifest.get("generated_at", ""),
+                str(manifest.get("subject", ""))[:60],
+                manifest.get("exported_video_path", "video.mp4") or "video.mp4",
+            ]
+        )
+
+    print(table)
+
+
+
+def show_generated_project(project_name: str) -> None:
+    project_dir = os.path.join(get_generated_projects_dir(), project_name)
+    if not os.path.isdir(project_dir):
+        error(f"Project '{project_name}' was not found in outputs/youtube.")
+        sys.exit(1)
+
+    manifest_path = os.path.join(project_dir, "manifest.json")
+    manifest = {}
+    if os.path.exists(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as file:
+            manifest = json.load(file) or {}
+
+    table = PrettyTable()
+    table.field_names = ["Field", "Value"]
+    table.add_row(["project_dir", project_dir])
+    table.add_row(["generated_at", manifest.get("generated_at", "")])
+    table.add_row(["subject", manifest.get("subject", "")])
+    table.add_row(["nickname", manifest.get("nickname", "")])
+    table.add_row(["niche", manifest.get("niche", "")])
+    table.add_row(["language", manifest.get("language", "")])
+    table.add_row(["video", os.path.join(project_dir, "video.mp4")])
+    table.add_row(["script", os.path.join(project_dir, "script.txt")])
+    table.add_row(["metadata", os.path.join(project_dir, "metadata.json")])
+    table.add_row(["prompts", os.path.join(project_dir, "image_prompts.json")])
+    table.add_row(["references", os.path.join(project_dir, "references.txt")])
+    table.add_row(["images", os.path.join(project_dir, "images")])
+    print(table)
+
+
+
+def handle_cli_command() -> bool:
+    if len(sys.argv) <= 1:
+        return False
+
+    command = str(sys.argv[1]).strip().lower()
+
+    if command == "projects":
+        action = str(sys.argv[2]).strip().lower() if len(sys.argv) > 2 else "list"
+        if action == "list":
+            list_generated_projects()
+            return True
+        if action == "show":
+            if len(sys.argv) < 4:
+                error("Usage: python src/main.py projects show <project_folder_name>")
+                sys.exit(1)
+            show_generated_project(str(sys.argv[3]).strip())
+            return True
+
+        error("Unknown projects command. Supported: projects list | projects show <project_folder_name>")
+        sys.exit(1)
+
+    return False
+
 
 
 def main():
@@ -162,7 +312,7 @@ def main():
                     tts = TTS()
 
                     if user_input == 1:
-                        generate_video_with_image_preservation(youtube, tts)
+                        generate_youtube_short(youtube, tts)
                         maybe_upload_youtube_short(youtube)
                     elif user_input == 2:
                         generated_path = generate_video_reusing_cached_images(youtube, tts)
@@ -461,6 +611,9 @@ def main():
 
 
 if __name__ == "__main__":
+    if handle_cli_command():
+        sys.exit(0)
+
     print_banner()
 
     first_time = get_first_time_running()

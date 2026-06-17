@@ -3,6 +3,8 @@ import sys
 import time
 import os
 import json
+import shutil
+import tempfile
 
 from cache import *
 from config import *
@@ -45,25 +47,67 @@ class Twitter:
         self.fp_profile_path: str = fp_profile_path
         self.topic: str = topic
 
-        # Initialize the Firefox profile
-        self.options: Options = Options()
-
-        # Set headless state of browser
-        if get_headless():
-            self.options.add_argument("--headless")
+        self._headless = get_headless()
+        self._runtime_profile_path: str | None = None
 
         if not os.path.isdir(fp_profile_path):
             raise ValueError(
                 f"Firefox profile path does not exist or is not a directory: {fp_profile_path}"
             )
 
-        # Set the profile path
-        self.options.add_argument("-profile")
-        self.options.add_argument(fp_profile_path)
-
         self.service: Service | None = None
         self.browser: webdriver.Firefox | None = None
         self.wait: WebDriverWait | None = None
+
+    def _build_browser_options(self, profile_path: str) -> Options:
+        options = Options()
+        if self._headless:
+            options.add_argument("--headless")
+        options.add_argument("-profile")
+        options.add_argument(profile_path)
+        return options
+
+    def _prepare_runtime_profile(self) -> str:
+        if self._runtime_profile_path and os.path.isdir(self._runtime_profile_path):
+            return self._runtime_profile_path
+
+        runtime_root = os.path.join(ROOT_DIR, ".mp", "firefox_profiles")
+        os.makedirs(runtime_root, exist_ok=True)
+        runtime_profile_path = tempfile.mkdtemp(
+            prefix=f"tw-{self.account_uuid[:8]}-",
+            dir=runtime_root,
+        )
+        shutil.copytree(
+            self.fp_profile_path,
+            runtime_profile_path,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(
+                "parent.lock",
+                "lock",
+                "*.lock",
+                "lockfile",
+                "Crash Reports",
+                "crashes",
+                "minidumps",
+                "startupCache",
+                "shader-cache",
+            ),
+        )
+        self._runtime_profile_path = runtime_profile_path
+        return runtime_profile_path
+
+    def _quit_browser(self) -> None:
+        if self.browser is not None:
+            try:
+                self.browser.quit()
+            except Exception:
+                pass
+        self.browser = None
+        self.wait = None
+        self.service = None
+        if self._runtime_profile_path and os.path.isdir(self._runtime_profile_path):
+            shutil.rmtree(self._runtime_profile_path, ignore_errors=True)
+        self._runtime_profile_path = None
 
     def _ensure_browser(self) -> webdriver.Firefox:
         """
@@ -73,8 +117,12 @@ class Twitter:
             browser (webdriver.Firefox): Active browser instance
         """
         if self.browser is None:
+            runtime_profile_path = self._prepare_runtime_profile()
             self.service = Service(GeckoDriverManager().install())
-            self.browser = webdriver.Firefox(service=self.service, options=self.options)
+            self.browser = webdriver.Firefox(
+                service=self.service,
+                options=self._build_browser_options(runtime_profile_path),
+            )
             self.wait = WebDriverWait(self.browser, 30)
         return self.browser
 
@@ -147,6 +195,7 @@ class Twitter:
         self.add_post({"content": body, "date": now.strftime("%m/%d/%Y, %H:%M:%S")})
 
         success("Posted to Twitter successfully!")
+        self._quit_browser()
 
     def get_posts(self) -> List[dict]:
         """

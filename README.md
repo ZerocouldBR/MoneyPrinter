@@ -93,14 +93,52 @@ pip install --force-reinstall -r requirements.txt
 
 ## Usage
 
+### Interactive app
+
 ```bash
-# Run the application
 python src/main.py
 ```
+
+### Generated video projects
+
+Each generated YouTube short is now exported into its own project folder under:
+
+```text
+outputs/youtube/
+```
+
+Each project folder contains:
+- `video.mp4`
+- `script.txt`
+- `image_prompts.json`
+- `metadata.json`
+- `references.txt`
+- `manifest.json`
+- `images/`
+
+### Project review commands
+
+```bash
+# List generated YouTube video projects
+python src/main.py projects list
+
+# Show details for one generated project folder
+python src/main.py projects show <project_folder_name>
+```
+
+### Manual topic or script input
+
+In the YouTube flow, choose `Upload Short` and then:
+- press `ENTER` to keep automatic topic and script generation, or
+- provide a custom topic, and optionally
+- paste your own full script and finish with a line containing only `END`
 
 ## Documentation
 
 All relevant documents can be found [here](docs/).
+
+Additional project workflow documentation:
+- [Generated YouTube Project Folders](docs/GeneratedProjects.md)
 
 ## Scripts
 

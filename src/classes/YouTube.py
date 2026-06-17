@@ -3,6 +3,8 @@ import base64
 import json
 import time
 import os
+import shutil
+import tempfile
 import requests
 import assemblyai as aai
 
@@ -85,21 +87,13 @@ class YouTube:
         self.images = []
         self.service: Service | None = None
         self.browser: webdriver.Firefox | None = None
-
-        # Initialize the Firefox profile
-        self.options: Options = Options()
-
-        # Set headless state of browser
-        if get_headless():
-            self.options.add_argument("--headless")
+        self._runtime_profile_path: str | None = None
+        self._headless = get_headless()
 
         if not os.path.isdir(self._fp_profile_path):
             raise ValueError(
                 f"Firefox profile path does not exist or is not a directory: {self._fp_profile_path}"
             )
-
-        self.options.add_argument("-profile")
-        self.options.add_argument(self._fp_profile_path)
 
     @property
     def niche(self) -> str:
@@ -133,6 +127,58 @@ class YouTube:
         """
         return generate_text(prompt, model_name=model_name)
 
+    def _build_browser_options(self, profile_path: str) -> Options:
+        options = Options()
+        if self._headless:
+            options.add_argument("--headless")
+        options.add_argument("-profile")
+        options.add_argument(profile_path)
+        return options
+
+    def _prepare_runtime_profile(self) -> str:
+        if self._runtime_profile_path and os.path.isdir(self._runtime_profile_path):
+            return self._runtime_profile_path
+
+        runtime_root = os.path.join(ROOT_DIR, ".mp", "firefox_profiles")
+        os.makedirs(runtime_root, exist_ok=True)
+        runtime_profile_path = tempfile.mkdtemp(
+            prefix=f"yt-{self._account_uuid[:8]}-",
+            dir=runtime_root,
+        )
+        shutil.copytree(
+            self._fp_profile_path,
+            runtime_profile_path,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(
+                "parent.lock",
+                "lock",
+                "*.lock",
+                "lockfile",
+                "Crash Reports",
+                "crashes",
+                "minidumps",
+                "startupCache",
+                "shader-cache",
+            ),
+        )
+        self._runtime_profile_path = runtime_profile_path
+        return runtime_profile_path
+
+    def _cleanup_runtime_profile(self) -> None:
+        if self._runtime_profile_path and os.path.isdir(self._runtime_profile_path):
+            shutil.rmtree(self._runtime_profile_path, ignore_errors=True)
+        self._runtime_profile_path = None
+
+    def _quit_browser(self) -> None:
+        if self.browser is not None:
+            try:
+                self.browser.quit()
+            except Exception:
+                pass
+        self.browser = None
+        self.service = None
+        self._cleanup_runtime_profile()
+
     def _ensure_browser(self) -> webdriver.Firefox:
         """
         Lazily initializes the Firefox browser only when needed.
@@ -141,8 +187,12 @@ class YouTube:
             browser (webdriver.Firefox): Active browser instance
         """
         if self.browser is None:
+            runtime_profile_path = self._prepare_runtime_profile()
             self.service = Service(GeckoDriverManager().install())
-            self.browser = webdriver.Firefox(service=self.service, options=self.options)
+            self.browser = webdriver.Firefox(
+                service=self.service,
+                options=self._build_browser_options(runtime_profile_path),
+            )
         return self.browser
 
     def generate_topic(self, forced_topic: str | None = None) -> str:
@@ -202,8 +252,11 @@ class YouTube:
         """
         completion = self.generate_response(prompt)
 
-        # Apply regex to remove *
+        # Apply regex cleanup for common LLM formatting artifacts
         completion = re.sub(r"\*", "", completion)
+        completion = re.sub(r"(?m)^\s*\d+[\).:-]?\s*", "", completion)
+        completion = re.sub(r"(?m)^\s*[-•]\s*", "", completion)
+        completion = re.sub(r"\n{3,}", "\n\n", completion).strip()
 
         if not completion:
             error("The generated script is empty.")
@@ -570,6 +623,145 @@ class YouTube:
 
         return srt_path
 
+    def _has_valid_imagemagick(self) -> bool:
+        configured_path = str(get_imagemagick_path() or "").strip()
+        if not configured_path:
+            return False
+        if configured_path.lower().startswith("path to "):
+            return False
+        return os.path.exists(configured_path)
+
+    def _reset_generation_state(self) -> None:
+        self.images = []
+        self.image_prompts = []
+        self.subject = ""
+        self.script = ""
+        self.metadata = {}
+        self.tts_path = None
+        self.video_path = None
+        self.exported_video_path = None
+        self.exported_video_dir = None
+
+    def _get_exports_dir(self) -> str:
+        exports_dir = os.path.join(ROOT_DIR, "outputs", "youtube")
+        os.makedirs(exports_dir, exist_ok=True)
+        return exports_dir
+
+    def _slugify(self, value: str, fallback: str = "video") -> str:
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", str(value or "")).strip("-").lower()
+        return slug[:80] or fallback
+
+    def _persist_generated_video(self) -> str | None:
+        source_video_path = getattr(self, "video_path", None)
+        if not source_video_path or not os.path.exists(source_video_path):
+            return None
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        slug = self._slugify(getattr(self, "subject", "video"))
+        exports_dir = self._get_exports_dir()
+        export_dir = os.path.join(exports_dir, f"{timestamp}-{slug}")
+        os.makedirs(export_dir, exist_ok=True)
+
+        exported_video_path = os.path.join(export_dir, "video.mp4")
+        shutil.copy2(source_video_path, exported_video_path)
+        self.exported_video_path = exported_video_path
+        self.exported_video_dir = export_dir
+
+        planning = {}
+        if isinstance(getattr(self, "metadata", {}), dict):
+            planning = self.metadata.get("planning", {}) or {}
+
+        export_payload = {
+            "account_id": self._account_uuid,
+            "nickname": self._account_nickname,
+            "niche": self._niche,
+            "language": self._language,
+            "subject": getattr(self, "subject", ""),
+            "script": getattr(self, "script", ""),
+            "metadata": getattr(self, "metadata", {}),
+            "image_prompts": getattr(self, "image_prompts", []),
+            "images": list(getattr(self, "images", [])),
+            "video_path": exported_video_path,
+            "project_dir": export_dir,
+            "research_brief": getattr(self, "research_brief", ""),
+            "references": {
+                "source": planning.get("source"),
+                "source_url": planning.get("source_url"),
+                "published_at": planning.get("published_at"),
+                "briefing": planning.get("briefing"),
+            },
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+        with open(os.path.join(export_dir, "manifest.json"), "w", encoding="utf-8") as file:
+            json.dump(export_payload, file, indent=2, ensure_ascii=False)
+
+        with open(os.path.join(export_dir, "script.txt"), "w", encoding="utf-8") as file:
+            file.write(str(getattr(self, "script", "")))
+
+        with open(os.path.join(export_dir, "image_prompts.json"), "w", encoding="utf-8") as file:
+            json.dump(list(getattr(self, "image_prompts", [])), file, indent=2, ensure_ascii=False)
+
+        with open(os.path.join(export_dir, "metadata.json"), "w", encoding="utf-8") as file:
+            json.dump(getattr(self, "metadata", {}), file, indent=2, ensure_ascii=False)
+
+        references_lines = [
+            f"subject: {getattr(self, 'subject', '')}",
+            f"source: {planning.get('source', '')}",
+            f"source_url: {planning.get('source_url', '')}",
+            f"published_at: {planning.get('published_at', '')}",
+            f"briefing: {planning.get('briefing', '')}",
+            f"research_brief: {getattr(self, 'research_brief', '')}",
+        ]
+        with open(os.path.join(export_dir, "references.txt"), "w", encoding="utf-8") as file:
+            file.write("\n".join(references_lines).strip() + "\n")
+
+        images_dir = os.path.join(export_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        for image_path in list(getattr(self, "images", [])):
+            if os.path.exists(image_path):
+                shutil.copy2(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+
+        return exported_video_path
+
+    def _save_generation_manifest(self) -> None:
+        manifest_path = os.path.join(ROOT_DIR, ".mp", "generated_videos.json")
+        exported_video_path = self._persist_generated_video()
+        record = {
+            "account_id": self._account_uuid,
+            "nickname": self._account_nickname,
+            "niche": self._niche,
+            "language": self._language,
+            "subject": getattr(self, "subject", ""),
+            "script": getattr(self, "script", ""),
+            "metadata": getattr(self, "metadata", {}),
+            "image_prompts": getattr(self, "image_prompts", []),
+            "images": list(getattr(self, "images", [])),
+            "video_path": getattr(self, "video_path", None),
+            "exported_video_path": exported_video_path,
+            "research_brief": getattr(self, "research_brief", ""),
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+        payload = {"items": []}
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as file:
+                    payload = json.load(file) or {"items": []}
+            except Exception:
+                payload = {"items": []}
+
+        if not isinstance(payload, dict):
+            payload = {"items": []}
+        payload.setdefault("items", [])
+        payload["items"].append(record)
+
+        with open(manifest_path, "w", encoding="utf-8") as file:
+            json.dump(payload, file, indent=2, ensure_ascii=False)
+
+        if exported_video_path:
+            success(f'Exported generated video to "{exported_video_path}"')
+
     def combine(self) -> str:
         """
         Combines everything into the final video.
@@ -578,22 +770,41 @@ class YouTube:
             path (str): The path to the generated MP4 File.
         """
         combined_image_path = os.path.join(ROOT_DIR, ".mp", str(uuid4()) + ".mp4")
+        valid_images = [image_path for image_path in self.images if os.path.exists(image_path)]
+        missing_images = [image_path for image_path in self.images if not os.path.exists(image_path)]
+
+        if missing_images:
+            warning(
+                f"Skipping {len(missing_images)} missing image(s) from the current run."
+            )
+        if not valid_images:
+            raise FileNotFoundError(
+                "No generated images are available for video composition. Generate images again before combining."
+            )
+
+        self.images = valid_images
         threads = get_threads()
         tts_clip = AudioFileClip(self.tts_path)
         max_duration = tts_clip.duration
         req_dur = max_duration / len(self.images)
 
-        # Make a generator that returns a TextClip when called with consecutive
-        generator = lambda txt: TextClip(
-            txt,
-            font=os.path.join(get_fonts_dir(), get_font()),
-            fontsize=100,
-            color="#FFFF00",
-            stroke_color="black",
-            stroke_width=5,
-            size=(1080, 1920),
-            method="caption",
-        )
+        generator = None
+        if self._has_valid_imagemagick():
+            generator = lambda txt: TextClip(
+                txt,
+                font=os.path.join(get_fonts_dir(), get_font()),
+                fontsize=100,
+                color="#FFFF00",
+                stroke_color="black",
+                stroke_width=5,
+                size=(1080, 1920),
+                method="caption",
+            )
+        elif get_verbose():
+            warning(
+                "ImageMagick path is not configured correctly. Subtitles will be skipped. "
+                "Set 'imagemagick_path' in config.json to magick.exe."
+            )
 
         print(colored("[+] Combining images...", "blue"))
 
@@ -641,13 +852,14 @@ class YouTube:
         random_song = choose_random_song()
 
         subtitles = None
-        try:
-            subtitles_path = self.generate_subtitles(self.tts_path)
-            equalize_subtitles(subtitles_path, 10)
-            subtitles = SubtitlesClip(subtitles_path, generator)
-            subtitles.set_pos(("center", "center"))
-        except Exception as e:
-            warning(f"Failed to generate subtitles, continuing without subtitles: {e}")
+        if generator is not None:
+            try:
+                subtitles_path = self.generate_subtitles(self.tts_path)
+                equalize_subtitles(subtitles_path, 10)
+                subtitles = SubtitlesClip(subtitles_path, generator)
+                subtitles.set_pos(("center", "center"))
+            except Exception as e:
+                warning(f"Failed to generate subtitles, continuing without subtitles: {e}")
 
         random_song_clip = AudioFileClip(random_song).set_fps(44100)
 
@@ -672,6 +884,7 @@ class YouTube:
         tts_instance: TTS,
         topic: str | None = None,
         context_brief: str | None = None,
+        script_override: str | None = None,
     ) -> str:
         """
         Generates a YouTube Short based on the provided niche and language.
@@ -682,13 +895,17 @@ class YouTube:
         Returns:
             path (str): The path to the generated MP4 File.
         """
+        self._reset_generation_state()
         self.research_brief = str(context_brief or "").strip()
 
         # Generate the Topic
         self.generate_topic(topic)
 
         # Generate the Script
-        self.generate_script()
+        if script_override is not None and str(script_override).strip():
+            self.script = str(script_override).strip()
+        else:
+            self.generate_script()
 
         # Generate the Metadata
         self.generate_metadata()
@@ -710,6 +927,7 @@ class YouTube:
             info(f" => Generated Video: {path}")
 
         self.video_path = os.path.abspath(path)
+        self._save_generation_manifest()
 
         return path
 
@@ -872,17 +1090,13 @@ class YouTube:
                 }
             )
 
-            # Close the browser
-            driver.quit()
-            self.browser = None
+            self._quit_browser()
 
             return True
         except Exception as e:
             if get_verbose():
                 warning(f"YouTube upload failed: {e}")
-            if self.browser is not None:
-                self.browser.quit()
-                self.browser = None
+            self._quit_browser()
             return False
 
     def get_videos(self) -> List[dict]:
