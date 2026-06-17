@@ -25,6 +25,7 @@ from cached_image_workflow import (
     generate_video_with_image_preservation,
 )
 from image_library import recover_image_library, list_image_library_projects
+from services.narrative_mode_service import NarrativeModeService
 
 
 def ask_yes_no(prompt: str) -> bool:
@@ -82,6 +83,7 @@ def generate_youtube_short(youtube: YouTube, tts: TTS) -> None:
         tts,
         topic=custom_topic,
         script_override=custom_script,
+        content_mode="classic",
     )
     success(f'Generated local video at "{generated_path}"')
     exported_video_path = getattr(youtube, "exported_video_path", None)
@@ -90,6 +92,36 @@ def generate_youtube_short(youtube: YouTube, tts: TTS) -> None:
         success(f'Persistent exported copy: "{exported_video_path}"')
     if exported_video_dir:
         success(f'Video project folder: "{exported_video_dir}"')
+
+
+def generate_youtube_narrative_short(youtube: YouTube, tts: TTS, mode: str) -> None:
+    custom_topic, custom_script = prompt_youtube_generation_inputs()
+    planner = NarrativeModeService()
+    plan = planner.build_plan(
+        mode=mode,
+        niche=youtube.niche,
+        language=youtube.language,
+        topic_override=custom_topic,
+        script_override=custom_script,
+    )
+    info(f"Narrative mode selected: {plan['mode_label']}", False)
+    generated_path = generate_video_with_image_preservation(
+        youtube,
+        tts,
+        topic=plan.get("subject"),
+        script_override=plan.get("script"),
+        scene_plan=plan.get("scenes"),
+        visual_bible=plan.get("visual_bible"),
+        content_mode=plan.get("mode", mode),
+    )
+    success(f'Generated local video at "{generated_path}"')
+    exported_video_path = getattr(youtube, "exported_video_path", None)
+    exported_video_dir = getattr(youtube, "exported_video_dir", None)
+    if exported_video_path:
+        success(f'Persistent exported copy: "{exported_video_path}"')
+    if exported_video_dir:
+        success(f'Video project folder: "{exported_video_dir}"')
+
 
 
 def get_generated_projects_dir() -> str:
@@ -109,7 +141,7 @@ def list_generated_projects() -> None:
     project_names.sort(reverse=True)
 
     table = PrettyTable()
-    table.field_names = ["Project", "Generated At", "Subject", "Video"]
+    table.field_names = ["Project", "Generated At", "Mode", "Subject", "Video"]
 
     for project_name in project_names:
         manifest_path = os.path.join(projects_dir, project_name, "manifest.json")
@@ -125,6 +157,7 @@ def list_generated_projects() -> None:
             [
                 project_name,
                 manifest.get("generated_at", ""),
+                manifest.get("content_mode", "classic"),
                 str(manifest.get("subject", ""))[:60],
                 manifest.get("exported_video_path", "video.mp4") or "video.mp4",
             ]
@@ -151,6 +184,7 @@ def show_generated_project(project_name: str) -> None:
     table.add_row(["project_dir", project_dir])
     table.add_row(["generated_at", manifest.get("generated_at", "")])
     table.add_row(["subject", manifest.get("subject", "")])
+    table.add_row(["content_mode", manifest.get("content_mode", "classic")])
     table.add_row(["nickname", manifest.get("nickname", "")])
     table.add_row(["niche", manifest.get("niche", "")])
     table.add_row(["language", manifest.get("language", "")])
@@ -158,8 +192,11 @@ def show_generated_project(project_name: str) -> None:
     table.add_row(["script", os.path.join(project_dir, "script.txt")])
     table.add_row(["metadata", os.path.join(project_dir, "metadata.json")])
     table.add_row(["prompts", os.path.join(project_dir, "image_prompts.json")])
+    table.add_row(["scenes", os.path.join(project_dir, "scenes.json")])
+    table.add_row(["visual_bible", os.path.join(project_dir, "visual_bible.json")])
     table.add_row(["references", os.path.join(project_dir, "references.txt")])
     table.add_row(["images", os.path.join(project_dir, "images")])
+    table.add_row(["scene_videos", os.path.join(project_dir, "scene_videos")])
     print(table)
 
 
@@ -345,6 +382,15 @@ def main():
                         if generated_path:
                             maybe_upload_youtube_short(youtube)
                     elif user_input == 3:
+                        generate_youtube_narrative_short(youtube, tts, mode="story")
+                        maybe_upload_youtube_short(youtube)
+                    elif user_input == 4:
+                        generate_youtube_narrative_short(youtube, tts, mode="finance")
+                        maybe_upload_youtube_short(youtube)
+                    elif user_input == 5:
+                        generate_youtube_narrative_short(youtube, tts, mode="biblical")
+                        maybe_upload_youtube_short(youtube)
+                    elif user_input == 6:
                         videos = youtube.get_videos()
 
                         if len(videos) > 0:
@@ -363,7 +409,7 @@ def main():
                             print(videos_table)
                         else:
                             warning(" No videos found.")
-                    elif user_input == 4:
+                    elif user_input == 7:
                         info("How often do you want to upload?")
 
                         info("\n============ OPTIONS ============", False)
@@ -389,7 +435,7 @@ def main():
                             success("Set up CRON Job.")
                         else:
                             break
-                    elif user_input == 5:
+                    elif user_input == 8:
                         if get_verbose():
                             info(" => Climbing Options Ladder...", False)
                         break

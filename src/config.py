@@ -203,6 +203,28 @@ def get_nanobanana2_aspect_ratio() -> str:
     return str(_get_config_value("nanobanana2_aspect_ratio", "9:16"))
 
 
+def get_image_generation_config() -> dict:
+    """
+    Gets the image generation configuration with safe defaults.
+
+    Returns:
+        config (dict): Image generation settings
+    """
+    raw_config = _get_config_value("image_generation", {})
+    if not isinstance(raw_config, dict):
+        raw_config = {}
+
+    return {
+        "provider": str(raw_config.get("provider", "gemini")).strip().lower() or "gemini",
+        "consistency_level": str(raw_config.get("consistency_level", "high")).strip().lower() or "high",
+        "use_reference_images": bool(raw_config.get("use_reference_images", False)),
+        "gemini_api_base_url": str(raw_config.get("gemini_api_base_url", get_nanobanana2_api_base_url())).strip(),
+        "gemini_api_key": str(raw_config.get("gemini_api_key", get_nanobanana2_api_key())).strip(),
+        "gemini_model": str(raw_config.get("gemini_model", get_nanobanana2_model())).strip(),
+        "aspect_ratio": str(raw_config.get("aspect_ratio", get_nanobanana2_aspect_ratio())).strip(),
+    }
+
+
 def get_threads() -> int:
     """
     Gets the amount of threads to use for example when writing to a file with MoviePy.
@@ -398,6 +420,53 @@ def get_script_sentence_length() -> int:
     """
     configured = load_config().get("script_sentence_length")
     return int(configured) if configured is not None else 4
+
+
+def get_storytelling_config() -> dict:
+    """
+    Gets narrative storytelling defaults.
+
+    Returns:
+        config (dict): Storytelling settings
+    """
+    raw_config = _get_config_value("storytelling", {})
+    if not isinstance(raw_config, dict):
+        raw_config = {}
+
+    return {
+        "default_scene_count": max(3, int(raw_config.get("default_scene_count", 6))),
+        "character_persistence": bool(raw_config.get("character_persistence", True)),
+        "visual_bible_enabled": bool(raw_config.get("visual_bible_enabled", True)),
+    }
+
+
+def get_video_generation_config() -> dict:
+    """
+    Gets the optional scene video generation configuration.
+
+    Returns:
+        config (dict): Video generation settings
+    """
+    raw_config = _get_config_value("video_generation", {})
+    if not isinstance(raw_config, dict):
+        raw_config = {}
+
+    return {
+        "enabled": bool(raw_config.get("enabled", False)),
+        "provider": str(raw_config.get("provider", "none")).strip().lower() or "none",
+        "mode": str(raw_config.get("mode", "hybrid")).strip().lower() or "hybrid",
+        "generate_first_n_scenes": max(0, int(raw_config.get("generate_first_n_scenes", 0))),
+        "duration_seconds": max(1, int(raw_config.get("duration_seconds", 6))),
+        "resolution": str(raw_config.get("resolution", "1080P")).strip() or "1080P",
+        "poll_interval_seconds": max(1, int(raw_config.get("poll_interval_seconds", 10))),
+        "poll_timeout_seconds": max(30, int(raw_config.get("poll_timeout_seconds", 900))),
+        "minimax_api_key": str(raw_config.get("minimax_api_key", "")).strip(),
+        "minimax_base_url": str(raw_config.get("minimax_base_url", "https://api.minimax.io/v1")).strip(),
+        "minimax_model": str(raw_config.get("minimax_model", "MiniMax-Hailuo-2.3")).strip(),
+        "gemini_api_key": str(raw_config.get("gemini_api_key", get_image_generation_config().get("gemini_api_key", ""))).strip(),
+        "gemini_base_url": str(raw_config.get("gemini_base_url", "https://generativelanguage.googleapis.com/v1beta")).strip(),
+        "gemini_model": str(raw_config.get("gemini_model", "veo-3.1-generate-preview")).strip(),
+    }
 
 
 def get_post_bridge_config() -> dict:

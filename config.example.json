@@ -9,6 +9,36 @@
   "nanobanana2_api_key": "",
   "nanobanana2_model": "gemini-3.1-flash-image-preview",
   "nanobanana2_aspect_ratio": "9:16",
+  "image_generation": {
+    "provider": "gemini",
+    "consistency_level": "high",
+    "use_reference_images": false,
+    "gemini_api_base_url": "https://generativelanguage.googleapis.com/v1beta",
+    "gemini_api_key": "",
+    "gemini_model": "gemini-3.1-flash-image-preview",
+    "aspect_ratio": "9:16"
+  },
+  "storytelling": {
+    "default_scene_count": 6,
+    "character_persistence": true,
+    "visual_bible_enabled": true
+  },
+  "video_generation": {
+    "enabled": false,
+    "provider": "none",
+    "mode": "hybrid",
+    "generate_first_n_scenes": 1,
+    "duration_seconds": 6,
+    "resolution": "1080P",
+    "poll_interval_seconds": 10,
+    "poll_timeout_seconds": 900,
+    "minimax_api_key": "",
+    "minimax_base_url": "https://api.minimax.io/v1",
+    "minimax_model": "MiniMax-Hailuo-2.3",
+    "gemini_api_key": "",
+    "gemini_base_url": "https://generativelanguage.googleapis.com/v1beta",
+    "gemini_model": "veo-3.1-generate-preview"
+  },
   "threads": 2,
   "zip_url": "",
   "is_for_kids": false,

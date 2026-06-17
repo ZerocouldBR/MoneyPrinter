@@ -15,8 +15,11 @@ outputs/youtube/20260617-103500-ai-and-automation/
   metadata.json
   script.txt
   image_prompts.json
+  scenes.json
+  visual_bible.json
   references.txt
   images/
+  scene_videos/
 ```
 
 ## What each file contains
@@ -24,17 +27,20 @@ outputs/youtube/20260617-103500-ai-and-automation/
 - `video.mp4`: final rendered video
 - `script.txt`: the exact narration script used for TTS
 - `image_prompts.json`: prompts used to generate the images
+- `scenes.json`: ordered scene plan with narration, purpose, and image prompt per scene
+- `visual_bible.json`: style, palette, character, setting, and continuity rules
 - `metadata.json`: title, description, and related metadata
 - `references.txt`: source, source URL, briefing, and research context
 - `manifest.json`: full structured record for the generated project
 - `images/`: copies of the images used in the final video
+- `scene_videos/`: copies of generated scene video clips when video generation is enabled
 
 ## Interactive workflow
 
 From the main menu:
 1. Select `YouTube Shorts Automation`
 2. Select an account
-3. Choose `Upload Short`
+3. Choose one creation mode: `Upload Short`, `Create Story Short`, `Create Market Commentary Short`, or `Create Biblical / Devotional Short`
 4. Press `ENTER` for automatic topic/script generation, or enter a custom topic
 5. Optionally provide your own full script and finish with `END`
 6. After rendering, review the generated project folder in `outputs/youtube/`

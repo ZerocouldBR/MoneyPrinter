@@ -111,10 +111,13 @@ Each project folder contains:
 - `video.mp4`
 - `script.txt`
 - `image_prompts.json`
+- `scenes.json`
+- `visual_bible.json`
 - `metadata.json`
 - `references.txt`
 - `manifest.json`
 - `images/`
+- `scene_videos/` (when scene video generation is enabled)
 
 ### Project review commands
 
@@ -132,6 +135,54 @@ python src/main.py images recover
 python src/main.py images list
 ```
 
+### Narrative creation modes
+
+The YouTube flow now supports dedicated narrative modes:
+- `Create Story Short`
+- `Create Market Commentary Short`
+- `Create Biblical / Devotional Short`
+
+These modes generate:
+- a subject
+- a coherent short script
+- a visual bible
+- scene-by-scene prompts with continuity
+
+### Image generation provider config
+
+You can now configure the image-generation layer in `config.json`:
+
+```json
+"image_generation": {
+  "provider": "gemini",
+  "consistency_level": "high",
+  "use_reference_images": false,
+  "gemini_api_base_url": "https://generativelanguage.googleapis.com/v1beta",
+  "gemini_api_key": "",
+  "gemini_model": "gemini-3.1-flash-image-preview",
+  "aspect_ratio": "9:16"
+}
+```
+
+The current build supports Gemini directly through the provider abstraction and is prepared for future provider integrations.
+
+### Optional scene video generation
+
+You can optionally enable scene video generation for narrative modes using either MiniMax or Gemini/Veo-compatible configuration:
+
+```json
+"video_generation": {
+  "enabled": false,
+  "provider": "none",
+  "mode": "hybrid",
+  "generate_first_n_scenes": 1,
+  "duration_seconds": 6,
+  "resolution": "1080P"
+}
+```
+
+When enabled, narrative modes can generate the first N scenes as video clips and fall back to images for the rest.
+
 ### Manual topic or script input
 
 In the YouTube flow, choose `Upload Short` and then:
@@ -146,6 +197,7 @@ All relevant documents can be found [here](docs/).
 Additional project workflow documentation:
 - [Generated YouTube Project Folders](docs/GeneratedProjects.md)
 - [Image Library Recovery and Reuse](docs/ImageLibrary.md)
+- [Narrative Modes](docs/NarrativeModes.md)
 
 ## Scripts
 

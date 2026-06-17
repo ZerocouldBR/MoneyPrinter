@@ -1,11 +1,9 @@
 import re
-import base64
 import json
 import time
 import os
 import shutil
 import tempfile
-import requests
 import assemblyai as aai
 
 try:
@@ -26,6 +24,8 @@ from uuid import uuid4
 from constants import *
 from typing import List
 from moviepy.editor import *
+from services.image_provider_service import ImageProviderService
+from services.video_provider_service import VideoProviderService
 from termcolor import colored
 from selenium_firefox import *
 from selenium import webdriver
@@ -302,6 +302,18 @@ class YouTube:
         Returns:
             image_prompts (List[str]): Generated List of image prompts.
         """
+        existing_scene_plan = getattr(self, "scene_plan", []) or []
+        if existing_scene_plan:
+            scene_prompts = [
+                str(scene.get("image_prompt", "")).strip()
+                for scene in existing_scene_plan
+                if str(scene.get("image_prompt", "")).strip()
+            ]
+            if scene_prompts:
+                self.image_prompts = scene_prompts
+                success(f"Using {len(scene_prompts)} scene prompt(s) from narrative plan.")
+                return scene_prompts
+
         n_prompts = max(4, min(10, len(re.findall(r"[.!?]", self.script)) * 2 or 6))
 
         prompt = f"""
@@ -368,6 +380,18 @@ class YouTube:
 
         return image_prompts
 
+    def _persist_video_asset(self, video_bytes: bytes, provider_label: str) -> str:
+        asset_path = os.path.join(ROOT_DIR, ".mp", str(uuid4()) + ".mp4")
+
+        with open(asset_path, "wb") as video_file:
+            video_file.write(video_bytes)
+
+        if get_verbose():
+            info(f' => Wrote video asset from {provider_label} to "{asset_path}"')
+
+        self.media_assets.append({"type": "video", "path": asset_path})
+        return asset_path
+
     def _persist_image(self, image_bytes: bytes, provider_label: str) -> str:
         """
         Writes generated image bytes to a PNG file in .mp.
@@ -388,72 +412,62 @@ class YouTube:
             info(f' => Wrote image from {provider_label} to "{image_path}"')
 
         self.images.append(image_path)
+        self.media_assets.append({"type": "image", "path": image_path})
         return image_path
 
-    def generate_image_nanobanana2(self, prompt: str) -> str:
-        """
-        Generates an AI Image using Nano Banana 2 API (Gemini image API).
+    def _compose_scene_prompt(self, scene: dict) -> str:
+        prompt = str(scene.get("image_prompt", "")).strip()
+        if not prompt:
+            return prompt
 
-        Args:
-            prompt (str): Prompt for image generation
+        visual_bible = getattr(self, "visual_bible", {}) or {}
+        continuity_rules = visual_bible.get("continuity_rules", []) or []
+        visual_prefix_parts = [
+            str(visual_bible.get("style", "")).strip(),
+            str(visual_bible.get("palette", "")).strip(),
+            str(visual_bible.get("main_character", "")).strip(),
+            str(visual_bible.get("setting", "")).strip(),
+            str(visual_bible.get("camera_style", "")).strip(),
+            str(visual_bible.get("mood", "")).strip(),
+        ]
+        prefix = ", ".join(part for part in visual_prefix_parts if part)
+        continuity = ", ".join(str(rule).strip() for rule in continuity_rules if str(rule).strip())
+        if prefix:
+            prompt = f"{prefix}, {prompt}"
+        if continuity:
+            prompt = f"{prompt}, continuity rules: {continuity}"
+        return prompt
 
-        Returns:
-            path (str): The path to the generated image.
-        """
-        print(f"Generating Image using Nano Banana 2 API: {prompt}")
+    def generate_scene_media(self) -> None:
+        video_config = get_video_generation_config()
+        if not self.scene_plan:
+            return
 
-        api_key = get_nanobanana2_api_key()
-        if not api_key:
-            error("nanobanana2_api_key is not configured.")
-            return None
+        generate_video_scenes = bool(video_config.get("enabled", False))
+        max_video_scenes = int(video_config.get("generate_first_n_scenes", 0))
+        mode = str(video_config.get("mode", "hybrid")).strip().lower()
 
-        base_url = get_nanobanana2_api_base_url().rstrip("/")
-        model = get_nanobanana2_model()
-        aspect_ratio = get_nanobanana2_aspect_ratio()
+        for index, scene in enumerate(self.scene_plan, start=1):
+            full_prompt = self._compose_scene_prompt(scene)
+            should_try_video = generate_video_scenes and index <= max_video_scenes
 
-        endpoint = f"{base_url}/models/{model}:generateContent"
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseModalities": ["IMAGE"],
-                "imageConfig": {"aspectRatio": aspect_ratio},
-            },
-        }
-
-        try:
-            response = requests.post(
-                endpoint,
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json=payload,
-                timeout=300,
-            )
-            response.raise_for_status()
-            body = response.json()
-
-            candidates = body.get("candidates", [])
-            for candidate in candidates:
-                content = candidate.get("content", {})
-                for part in content.get("parts", []):
-                    inline_data = part.get("inlineData") or part.get("inline_data")
-                    if not inline_data:
+            if should_try_video:
+                try:
+                    video_bytes, provider_label = VideoProviderService().generate_video(full_prompt)
+                    if video_bytes:
+                        self._persist_video_asset(video_bytes, provider_label)
                         continue
-                    data = inline_data.get("data")
-                    mime_type = inline_data.get("mimeType") or inline_data.get("mime_type", "")
-                    if data and str(mime_type).startswith("image/"):
-                        image_bytes = base64.b64decode(data)
-                        return self._persist_image(image_bytes, "Nano Banana 2 API")
+                except Exception as e:
+                    if get_verbose():
+                        warning(f"Failed to generate scene video asset: {e}")
+                    if mode == "video_only":
+                        raise
 
-            if get_verbose():
-                warning(f"Nano Banana 2 did not return an image payload. Response: {body}")
-            return None
-        except Exception as e:
-            if get_verbose():
-                warning(f"Failed to generate image with Nano Banana 2 API: {str(e)}")
-            return None
+            self.generate_image(full_prompt)
 
     def generate_image(self, prompt: str) -> str:
         """
-        Generates an AI Image based on the given prompt using Nano Banana 2.
+        Generates an AI Image based on the given prompt using the configured provider.
 
         Args:
             prompt (str): Reference for image generation
@@ -461,7 +475,16 @@ class YouTube:
         Returns:
             path (str): The path to the generated image.
         """
-        return self.generate_image_nanobanana2(prompt)
+        print(f"Generating Image using configured provider: {prompt}")
+        try:
+            image_bytes, provider_label = ImageProviderService().generate_image(prompt)
+            if image_bytes:
+                return self._persist_image(image_bytes, provider_label)
+            return None
+        except Exception as e:
+            if get_verbose():
+                warning(f"Failed to generate image with configured provider: {str(e)}")
+            return None
 
     def generate_script_to_speech(self, tts_instance: TTS) -> str:
         """
@@ -634,6 +657,10 @@ class YouTube:
     def _reset_generation_state(self) -> None:
         self.images = []
         self.image_prompts = []
+        self.media_assets = []
+        self.scene_plan = []
+        self.visual_bible = {}
+        self.content_mode = "classic"
         self.subject = ""
         self.script = ""
         self.metadata = {}
@@ -678,8 +705,12 @@ class YouTube:
             "language": self._language,
             "subject": getattr(self, "subject", ""),
             "script": getattr(self, "script", ""),
+            "content_mode": getattr(self, "content_mode", "classic"),
             "metadata": getattr(self, "metadata", {}),
             "image_prompts": getattr(self, "image_prompts", []),
+            "scene_plan": getattr(self, "scene_plan", []),
+            "visual_bible": getattr(self, "visual_bible", {}),
+            "media_assets": list(getattr(self, "media_assets", [])),
             "images": list(getattr(self, "images", [])),
             "video_path": exported_video_path,
             "project_dir": export_dir,
@@ -702,11 +733,18 @@ class YouTube:
         with open(os.path.join(export_dir, "image_prompts.json"), "w", encoding="utf-8") as file:
             json.dump(list(getattr(self, "image_prompts", [])), file, indent=2, ensure_ascii=False)
 
+        with open(os.path.join(export_dir, "scenes.json"), "w", encoding="utf-8") as file:
+            json.dump(list(getattr(self, "scene_plan", [])), file, indent=2, ensure_ascii=False)
+
+        with open(os.path.join(export_dir, "visual_bible.json"), "w", encoding="utf-8") as file:
+            json.dump(getattr(self, "visual_bible", {}), file, indent=2, ensure_ascii=False)
+
         with open(os.path.join(export_dir, "metadata.json"), "w", encoding="utf-8") as file:
             json.dump(getattr(self, "metadata", {}), file, indent=2, ensure_ascii=False)
 
         references_lines = [
             f"subject: {getattr(self, 'subject', '')}",
+            f"content_mode: {getattr(self, 'content_mode', 'classic')}",
             f"source: {planning.get('source', '')}",
             f"source_url: {planning.get('source_url', '')}",
             f"published_at: {planning.get('published_at', '')}",
@@ -722,6 +760,12 @@ class YouTube:
             if os.path.exists(image_path):
                 shutil.copy2(image_path, os.path.join(images_dir, os.path.basename(image_path)))
 
+        scene_videos_dir = os.path.join(export_dir, "scene_videos")
+        os.makedirs(scene_videos_dir, exist_ok=True)
+        for asset in list(getattr(self, "media_assets", [])):
+            if asset.get("type") == "video" and os.path.exists(asset.get("path", "")):
+                shutil.copy2(asset["path"], os.path.join(scene_videos_dir, os.path.basename(asset["path"])))
+
         return exported_video_path
 
     def _save_generation_manifest(self) -> None:
@@ -734,8 +778,12 @@ class YouTube:
             "language": self._language,
             "subject": getattr(self, "subject", ""),
             "script": getattr(self, "script", ""),
+            "content_mode": getattr(self, "content_mode", "classic"),
             "metadata": getattr(self, "metadata", {}),
             "image_prompts": getattr(self, "image_prompts", []),
+            "scene_plan": getattr(self, "scene_plan", []),
+            "visual_bible": getattr(self, "visual_bible", {}),
+            "media_assets": list(getattr(self, "media_assets", [])),
             "images": list(getattr(self, "images", [])),
             "video_path": getattr(self, "video_path", None),
             "exported_video_path": exported_video_path,
@@ -770,23 +818,27 @@ class YouTube:
             path (str): The path to the generated MP4 File.
         """
         combined_image_path = os.path.join(ROOT_DIR, ".mp", str(uuid4()) + ".mp4")
-        valid_images = [image_path for image_path in self.images if os.path.exists(image_path)]
-        missing_images = [image_path for image_path in self.images if not os.path.exists(image_path)]
+        media_assets = [asset for asset in getattr(self, "media_assets", []) if os.path.exists(asset.get("path", ""))]
+        if not media_assets:
+            valid_images = [image_path for image_path in self.images if os.path.exists(image_path)]
+            missing_images = [image_path for image_path in self.images if not os.path.exists(image_path)]
 
-        if missing_images:
-            warning(
-                f"Skipping {len(missing_images)} missing image(s) from the current run."
-            )
-        if not valid_images:
-            raise FileNotFoundError(
-                "No generated images are available for video composition. Generate images again before combining."
-            )
+            if missing_images:
+                warning(
+                    f"Skipping {len(missing_images)} missing image(s) from the current run."
+                )
+            if not valid_images:
+                raise FileNotFoundError(
+                    "No generated images are available for video composition. Generate images again before combining."
+                )
 
-        self.images = valid_images
+            self.images = valid_images
+            media_assets = [{"type": "image", "path": path} for path in self.images]
+
         threads = get_threads()
         tts_clip = AudioFileClip(self.tts_path)
         max_duration = tts_clip.duration
-        req_dur = max_duration / len(self.images)
+        req_dur = max_duration / len(media_assets)
 
         generator = None
         if self._has_valid_imagemagick():
@@ -810,42 +862,51 @@ class YouTube:
 
         clips = []
         tot_dur = 0
-        # Add downloaded clips over and over until the duration of the audio (max_duration) has been reached
         while tot_dur < max_duration:
-            for image_path in self.images:
-                clip = ImageClip(image_path)
-                clip.duration = req_dur
-                clip = clip.set_fps(30)
-
-                # Not all images are same size,
-                # so we need to resize them
-                if round((clip.w / clip.h), 4) < 0.5625:
+            for asset in media_assets:
+                asset_type = asset.get("type")
+                asset_path = asset.get("path")
+                if asset_type == "video":
+                    clip = VideoFileClip(asset_path).without_audio()
+                    if clip.duration < req_dur:
+                        clip = clip.fx(vfx.loop, duration=req_dur)
+                    else:
+                        clip = clip.subclip(0, req_dur)
+                    clip = clip.set_fps(30)
                     if get_verbose():
-                        info(f" => Resizing Image: {image_path} to 1080x1920")
-                    clip = crop(
-                        clip,
-                        width=clip.w,
-                        height=round(clip.w / 0.5625),
-                        x_center=clip.w / 2,
-                        y_center=clip.h / 2,
-                    )
+                        info(f" => Resizing Video Asset: {asset_path} to 1080x1920")
                 else:
-                    if get_verbose():
-                        info(f" => Resizing Image: {image_path} to 1920x1080")
-                    clip = crop(
-                        clip,
-                        width=round(0.5625 * clip.h),
-                        height=clip.h,
-                        x_center=clip.w / 2,
-                        y_center=clip.h / 2,
-                    )
+                    clip = ImageClip(asset_path)
+                    clip.duration = req_dur
+                    clip = clip.set_fps(30)
+
+                    if round((clip.w / clip.h), 4) < 0.5625:
+                        if get_verbose():
+                            info(f" => Resizing Image: {asset_path} to 1080x1920")
+                        clip = crop(
+                            clip,
+                            width=clip.w,
+                            height=round(clip.w / 0.5625),
+                            x_center=clip.w / 2,
+                            y_center=clip.h / 2,
+                        )
+                    else:
+                        if get_verbose():
+                            info(f" => Resizing Image: {asset_path} to 1920x1080")
+                        clip = crop(
+                            clip,
+                            width=round(0.5625 * clip.h),
+                            height=clip.h,
+                            x_center=clip.w / 2,
+                            y_center=clip.h / 2,
+                        )
+
                 clip = clip.resize((1080, 1920))
-
-                # FX (Fade In)
-                # clip = clip.fadein(2)
-
                 clips.append(clip)
                 tot_dur += clip.duration
+
+                if tot_dur >= max_duration:
+                    break
 
         final_clip = concatenate_videoclips(clips)
         final_clip = final_clip.set_fps(30)
@@ -885,6 +946,9 @@ class YouTube:
         topic: str | None = None,
         context_brief: str | None = None,
         script_override: str | None = None,
+        scene_plan: list[dict] | None = None,
+        visual_bible: dict | None = None,
+        content_mode: str = "classic",
     ) -> str:
         """
         Generates a YouTube Short based on the provided niche and language.
@@ -897,6 +961,9 @@ class YouTube:
         """
         self._reset_generation_state()
         self.research_brief = str(context_brief or "").strip()
+        self.scene_plan = list(scene_plan or [])
+        self.visual_bible = dict(visual_bible or {})
+        self.content_mode = str(content_mode or "classic").strip().lower() or "classic"
 
         # Generate the Topic
         self.generate_topic(topic)
@@ -913,9 +980,12 @@ class YouTube:
         # Generate the Image Prompts
         self.generate_prompts()
 
-        # Generate the Images
-        for prompt in self.image_prompts:
-            self.generate_image(prompt)
+        # Generate the Images / Scene Video Assets
+        if self.scene_plan:
+            self.generate_scene_media()
+        else:
+            for prompt in self.image_prompts:
+                self.generate_image(prompt)
 
         # Generate the TTS
         self.generate_script_to_speech(tts_instance)
